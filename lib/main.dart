@@ -538,20 +538,134 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   /// Library tab content.
+  /// Group songs by first character (A-Z, 0-9, # for other).
+  Map<String, List<Song>> _groupedSongs = {};
+  List<String> _sortedSectionKeys = [];
+  final Map<String, GlobalKey> _sectionKeys = {};
+
+  void _buildGroupedSongs() {
+    if (_groupedSongs.isNotEmpty) return; // Only build once
+    final groups = <String, List<Song>>{};
+    for (final song in widget.allSongs) {
+      final firstChar = song.title.isNotEmpty ? song.title[0].toUpperCase() : '#';
+      if (!RegExp(r'^[A-Z0-9]$').hasMatch(firstChar)) {
+        groups.putIfAbsent('#', () => []).add(song);
+      } else {
+        groups.putIfAbsent(firstChar, () => []).add(song);
+      }
+    }
+    _groupedSongs = groups;
+
+    // Sorted section keys: # first, then numbers, then letters
+    final allKeys = groups.keys.toList()..sort((a, b) {
+      if (a == '#') return -2;
+      if (b == '#') return 2;
+      final aIsDigit = RegExp(r'^[0-9]$').hasMatch(a);
+      final bIsDigit = RegExp(r'^[0-9]$').hasMatch(b);
+      if (aIsDigit && !bIsDigit) return -1;
+      if (!aIsDigit && bIsDigit) return 1;
+      return a.compareTo(b);
+    });
+    _sortedSectionKeys = allKeys;
+
+    // Create keys for each section
+    for (final key in allKeys) {
+      _sectionKeys[key] = GlobalKey();
+    }
+  }
+
+  /// Scroll to the given letter section.
+  void _scrollToSection(String key) {
+    final context = _sectionKeys[key]?.currentContext;
+    if (context != null) {
+      Scrollable.ensureVisible(context, duration: const Duration(milliseconds: 200));
+    }
+  }
+
   Widget _buildLibraryTab() {
-    return CustomScrollView(
-      slivers: [
-        SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final song = widget.allSongs[index];
-              return _buildSongListItem(song);
-            },
-            childCount: widget.allSongs.length,
-          ),
+    _buildGroupedSongs();
+
+    return Stack(
+      children: [
+        CustomScrollView(
+          slivers: [
+            ..._sortedSectionKeys.map((key) {
+              final songs = _groupedSongs[key]!;
+              return SliverMainAxisGroup(
+                key: _sectionKeys[key],
+                slivers: [
+                  // Sticky section header
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _SectionHeaderDelegate(key),
+                  ),
+                  // Songs in this group
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final song = songs[index];
+                        return _buildSongListItem(song);
+                      },
+                      childCount: songs.length,
+                    ),
+                  ),
+                ],
+              );
+            }),
+            const SliverToBoxAdapter(child: SizedBox(height: 80)),
+          ],
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: 80)),
+
+        // Alphabet index bar on the right edge
+        Positioned(
+          top: 0,
+          bottom: 80, // Leave room for player
+          right: 0,
+          child: _buildAlphabetIndex(),
+        ),
       ],
+    );
+  }
+
+  /// Thin vertical alphabet index bar.
+  Widget _buildAlphabetIndex() {
+    // Build all possible section labels (# + 0-9 + A-Z)
+    final allLabels = <String>['#'];
+    for (int i = 0; i <= 9; i++) {
+      allLabels.add(i.toString());
+    }
+    for (int c = 65; c <= 90; c++) {
+      allLabels.add(String.fromCharCode(c));
+    }
+
+    // Filter to only sections that exist
+    final activeLabels = allLabels.where((l) => _groupedSongs.containsKey(l)).toList();
+
+    if (activeLabels.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: 16,
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: ListView.builder(
+        itemCount: activeLabels.length,
+        itemBuilder: (context, index) {
+          final label = activeLabels[index];
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _scrollToSection(label),
+            child: Center(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white54,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -830,5 +944,41 @@ class _SearchContentState extends State<_SearchContent> {
         const SliverToBoxAdapter(child: SizedBox(height: 80)),
       ],
     );
+  }
+}
+
+/// Sticky section header for library alphabet grouping.
+class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final String label;
+  _SectionHeaderDelegate(this.label);
+
+  @override
+  double get minExtent => 28;
+  @override
+  double get maxExtent => 28;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      alignment: Alignment.centerLeft,
+      color: Colors.black.withValues(alpha: 0.85 * (1 - (shrinkOffset / 28).clamp(0, 1))),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Colors.white54,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _SectionHeaderDelegate oldDelegate) {
+    return label != oldDelegate.label;
   }
 }
