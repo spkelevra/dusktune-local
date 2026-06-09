@@ -361,13 +361,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'top picks',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white70,
-                    letterSpacing: 0.5,
+                GestureDetector(
+                  onTap: resetTopPicks,
+                  child: const Text(
+                    'top picks',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
                 TextButton.icon(
@@ -769,16 +772,23 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
                 const SizedBox(width: 8),
 
-                // Play/Pause
-                IconButton(
-                  icon: Icon(
-                    _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                    size: 36,
-                    color: Colors.white,
+                // Play/Pause (square button)
+                GestureDetector(
+                  onTap: AudioPlayerService.togglePlayPause,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      _isPlaying ? Icons.pause : Icons.play_arrow,
+                      size: 24,
+                      color: Colors.white,
+                    ),
                   ),
-                  onPressed: AudioPlayerService.togglePlayPause,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
                 ),
 
                 const SizedBox(width: 8),

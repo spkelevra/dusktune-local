@@ -92,9 +92,9 @@ class DuskAudioHandler extends BaseAudioHandler
 
     try {
       _currentSong = song;
-      // Use AudioSource.file with the actual file path from on_audio_query.
+      // Use AudioSource.file for local files — better codec support (WMA, etc.)
       await _player.setAudioSource(
-        AudioSource.uri(Uri.parse(song.uri), tag: mediaItem),
+        AudioSource.file(song.uri, tag: mediaItem),
       );
       this.mediaItem.add(mediaItem);
       queue.value = [mediaItem];
@@ -110,7 +110,7 @@ class DuskAudioHandler extends BaseAudioHandler
     final uriStr = mediaItem.extras?['uri'] as String?;
     if (uriStr != null) {
       await _player.setAudioSource(
-        AudioSource.uri(Uri.parse(uriStr), tag: mediaItem),
+        AudioSource.file(uriStr, tag: mediaItem),
       );
     } else {
       debugPrint('_playMediaItem: no URI in extras for ${mediaItem.title}');
