@@ -1,15 +1,38 @@
 # dusktune
 
-A minimalist, opinionated dark-mode music player for Android.
+A minimalist, opinionated dark-mode music player for Android, Windows, and macOS.
 
 ## Features
+
 - **The Grid** — Quickly pull up shuffled tiles of tracks
 - **Fast** — Designed for speed, no thumbnails. No extra panes popping up when they aren't needed
+- **Cross-platform** — Native builds for Android, Windows, and macOS with desktop folder scanning and ID3 tag support
+
+## Platforms
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Android  | ✅ Stable | Uses `on_audio_query` for media library access |
+| Windows  | ✅ Stable | Manual music folder selection via Settings tab |
+| macOS    | ✅ Stable | Manual music folder selection via Settings tab |
+
+## Desktop Setup (Windows / macOS)
+
+On first launch, add your music folders via the **Settings** tab. Supported formats: MP3, FLAC, WAV, M4A, OGG, AAC, WMA, Opus.
+
+## Keyboard Shortcuts (Desktop)
+
+| Key | Action |
+|-----|--------|
+| `` ` `` (backtick) | Shuffle top picks grid |
+| `Space` | Toggle play / pause |
+| `1` – `9` | Play tile by position (left → right, top → bottom) |
 
 ## Getting Started
 
-Install the APK>Accept Permissions Prompt
+**Android:** Install the APK → Accept permissions prompt.
 
+**Windows / macOS:** Download the release ZIP, extract, and run the executable. Add your music folders on first launch via Settings.
 
 ## Support
 
