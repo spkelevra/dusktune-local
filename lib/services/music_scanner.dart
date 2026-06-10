@@ -37,9 +37,19 @@ String normalizePath(String raw) {
     if (slashIdx > 0) {
       final shareName = withoutScheme.substring(0, slashIdx);
       final subPath = withoutScheme.substring(slashIdx + 1);
-      path = '/Volumes/$shareName/${subPath.isEmpty ? '' : subPath}';
+      if (Platform.isWindows) {
+        // On Windows: smb://host/share/path → \\host\share\path
+        path = '\\\\$shareName/${subPath.isEmpty ? '' : subPath.replaceAll('/', '\\')}';
+      } else {
+        // macOS: smb://host/share/path → /Volumes/share/path
+        path = '/Volumes/$shareName/${subPath.isEmpty ? '' : subPath}';
+      }
     } else {
-      path = '/Volumes/$withoutScheme';
+      if (Platform.isWindows) {
+        path = '\\\\$withoutScheme';
+      } else {
+        path = '/Volumes/$withoutScheme';
+      }
     }
     debugPrint('DesktopMusicScanner: normalized SMB URL "$raw" → "$path"');
   }
@@ -51,20 +61,41 @@ String normalizePath(String raw) {
 // Accessibility check — uses `stat` via shell so it can be killed on timeout
 // ---------------------------------------------------------------------------
 
-/// Check if a folder exists and is accessible using a native `stat` call.
+/// Check if a folder exists and is accessible using a native command.
+/// - macOS/Linux: uses `stat` + `test -d` subprocess (can be killed on timeout)
+/// - Windows: falls back to Directory.exists() with .timeout()
 Future<bool> isFolderAccessible(String folderPath) async {
   try {
-    final result = await Process.run('stat', ['-f', '%z', folderPath])
-        .timeout(_accessTimeout);
-    if (result.exitCode != 0) {
-      debugPrint('DesktopMusicScanner: stat failed for $folderPath');
-      return false;
-    }
-    final typeResult = await Process.run('test', ['-d', folderPath])
-        .timeout(_accessTimeout);
-    if (typeResult.exitCode != 0) {
-      debugPrint('DesktopMusicScanner: $folderPath is not a directory');
-      return false;
+    if (Platform.isWindows) {
+      // On Windows, use dart:io directly — Process.run('stat') doesn't exist.
+      // The timeout still protects against hanging network paths.
+      final dir = Directory(folderPath);
+      final exists = await dir.exists().timeout(_accessTimeout);
+      if (!exists) {
+        debugPrint('DesktopMusicScanner: folder does not exist: $folderPath');
+        return false;
+      }
+      // Quick list to confirm it's readable
+      try {
+        await dir.list().first.timeout(_accessTimeout);
+      } catch (_) {
+        debugPrint('DesktopMusicScanner: folder not readable: $folderPath');
+        return false;
+      }
+    } else {
+      // macOS/Linux: use subprocess so we can hard-kill on timeout.
+      final result = await Process.run('stat', ['-f', '%z', folderPath])
+          .timeout(_accessTimeout);
+      if (result.exitCode != 0) {
+        debugPrint('DesktopMusicScanner: stat failed for $folderPath');
+        return false;
+      }
+      final typeResult = await Process.run('test', ['-d', folderPath])
+          .timeout(_accessTimeout);
+      if (typeResult.exitCode != 0) {
+        debugPrint('DesktopMusicScanner: $folderPath is not a directory');
+        return false;
+      }
     }
     return true;
   } on TimeoutException {
