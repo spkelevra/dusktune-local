@@ -169,10 +169,18 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Set whenever a song is tapped — grid order, alphabetical, or search results.
   List<Song> _playQueue = [];
   int _playQueueIndex = -1;
+  // Keyboard focus node for desktop shortcuts (always focused, never visible)
+  final FocusNode _keyboardFocusNode = FocusNode(skipTraversal: true);
 
   @override
   void initState() {
     super.initState();
+    // Ensure keyboard listener always has focus on desktop
+    if (_isDesktop) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _keyboardFocusNode.requestFocus();
+      });
+    }
     _listenToPlayback();
     // Wire up auto-advance when a track finishes
     AudioPlayerService.setOnTrackComplete(_skipToNext);
@@ -246,6 +254,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     // Persist play counts to disk
     _savePlayCounts();
     await AudioPlayerService.playSong(song);
+    // Force UI sync — stream may not have emitted yet on desktop release builds
+    if (mounted) {
+      setState(() => _isPlaying = AudioPlayerService.isPlaying);
+    }
   }
 
   /// Get top N songs by play count, sorted descending.
@@ -373,45 +385,55 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       ),
     );
 
-    // Wrap with keyboard shortcuts on desktop
+    // Wrap with keyboard shortcuts on desktop (KeyboardListener avoids focus issues)
     if (isDesktop) {
-      content = Shortcuts(
-        shortcuts: <LogicalKeySet, Intent>{
-          LogicalKeySet(LogicalKeyboardKey.tab): const _ShuffleGridIntent(),
-          LogicalKeySet(LogicalKeyboardKey.digit1): const _PlayTileIntent(0),
-          LogicalKeySet(LogicalKeyboardKey.digit2): const _PlayTileIntent(1),
-          LogicalKeySet(LogicalKeyboardKey.digit3): const _PlayTileIntent(2),
-          LogicalKeySet(LogicalKeyboardKey.digit4): const _PlayTileIntent(3),
-          LogicalKeySet(LogicalKeyboardKey.digit5): const _PlayTileIntent(4),
-          LogicalKeySet(LogicalKeyboardKey.digit6): const _PlayTileIntent(5),
-          LogicalKeySet(LogicalKeyboardKey.digit7): const _PlayTileIntent(6),
-          LogicalKeySet(LogicalKeyboardKey.digit8): const _PlayTileIntent(7),
-          LogicalKeySet(LogicalKeyboardKey.digit9): const _PlayTileIntent(8),
-        },
-        child: Actions(
-          actions: <Type, Action<Intent>>{
-            _ShuffleGridIntent: CallbackAction<_ShuffleGridIntent>(
-              onInvoke: (_) {
-                shuffleTopNine(context);
-                return null;
-              },
-            ),
-            _PlayTileIntent: CallbackAction<_PlayTileIntent>(
-              onInvoke: (intent) {
-                final topSongs = getTopSongs(9);
-                if (intent.index < topSongs.length) {
-                  playSong(topSongs[intent.index], queue: topSongs);
-                }
-                return null;
-              },
-            ),
-          },
-          child: content,
-        ),
+      content = KeyboardListener(
+        focusNode: _keyboardFocusNode,
+        onKeyEvent: _handleKeyEvent,
+        child: content,
       );
     }
 
     return content;
+  }
+
+  /// Handle desktop keyboard shortcuts.
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+
+    final key = event.logicalKey;
+
+    // Backtick (`) → shuffle grid
+    if (key == LogicalKeyboardKey.backquote) {
+      shuffleTopNine(context);
+      return;
+    }
+
+    // Space → toggle play/pause
+    if (key == LogicalKeyboardKey.space) {
+      AudioPlayerService.togglePlayPause();
+      setState(() => _isPlaying = AudioPlayerService.isPlaying);
+      return;
+    }
+
+    // 1-9 → play tile by position
+    int? tileIndex;
+    if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1) tileIndex = 0;
+    if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2) tileIndex = 1;
+    if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3) tileIndex = 2;
+    if (key == LogicalKeyboardKey.digit4 || key == LogicalKeyboardKey.numpad4) tileIndex = 3;
+    if (key == LogicalKeyboardKey.digit5 || key == LogicalKeyboardKey.numpad5) tileIndex = 4;
+    if (key == LogicalKeyboardKey.digit6 || key == LogicalKeyboardKey.numpad6) tileIndex = 5;
+    if (key == LogicalKeyboardKey.digit7 || key == LogicalKeyboardKey.numpad7) tileIndex = 6;
+    if (key == LogicalKeyboardKey.digit8 || key == LogicalKeyboardKey.numpad8) tileIndex = 7;
+    if (key == LogicalKeyboardKey.digit9 || key == LogicalKeyboardKey.numpad9) tileIndex = 8;
+
+    if (tileIndex != null) {
+      final topSongs = getTopSongs(9);
+      if (tileIndex < topSongs.length) {
+        playSong(topSongs[tileIndex], queue: topSongs);
+      }
+    }
   }
 
   /// Top navigation bar with editable app name + tab buttons.
@@ -938,7 +960,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
                 // Play/Pause (square button)
                 GestureDetector(
-                  onTap: AudioPlayerService.togglePlayPause,
+                  onTap: () {
+                    AudioPlayerService.togglePlayPause();
+                    // Force UI sync — stream emission may lag on release builds
+                    setState(() => _isPlaying = AudioPlayerService.isPlaying);
+                  },
                   child: Container(
                     width: 36,
                     height: 36,
@@ -1492,15 +1518,4 @@ class _SettingsContentState extends State<_SettingsContent> {
       ],
     );
   }
-}
-
-/// Intent for shuffling the top picks grid (Tab key).
-class _ShuffleGridIntent extends Intent {
-  const _ShuffleGridIntent();
-}
-
-/// Intent for playing a specific tile by number key (1-9).
-class _PlayTileIntent extends Intent {
-  final int index;
-  const _PlayTileIntent(this.index);
 }
