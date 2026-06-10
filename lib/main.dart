@@ -1,14 +1,19 @@
 /// DuskTune — a music player app.
 library;
 
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'app_theme.dart';
 import 'models/song.dart';
 import 'services/audio_player.dart';
 import 'services/music_library.dart';
 import 'services/app_settings.dart';
 import 'widgets/tile_pattern.dart';
+
+/// Returns true if running on a desktop platform (Windows, macOS, Linux).
+bool get _isDesktop => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,7 +45,8 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   bool _isLoading = true;
   List<Song> _songs = [];
-  int _tabIndex = 0; // 0=home, 1=search, 2=library
+  int _tabIndex = 0; // 0=home, 1=search, 2=library, 3=settings (desktop)
+  bool _needsFolderSetup = false; // Desktop: no music folders configured yet
 
   @override
   void initState() {
@@ -55,6 +61,19 @@ class _AppRootState extends State<AppRoot> {
       if (mounted) setState(() => _isLoading = false);
       return;
     }
+
+    // On desktop, check if music folders are configured
+    if (_isDesktop) {
+      final hasFolders = await library.hasMusicFolders();
+      if (!hasFolders && mounted) {
+        setState(() {
+          _needsFolderSetup = true;
+          _isLoading = false;
+        });
+        return;
+      }
+    }
+
     try {
       final songs = await library.init();
       if (mounted) {
@@ -66,6 +85,22 @@ class _AppRootState extends State<AppRoot> {
     } catch (e) {
       debugPrint('AppRoot _loadLibrary error: $e');
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Re-scan music folders after settings change.
+  Future<void> rescanLibrary() async {
+    final library = MusicLibrary();
+    try {
+      final songs = await library.rescan();
+      if (mounted) {
+        setState(() {
+          _songs = songs;
+          _needsFolderSetup = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('AppRoot rescanLibrary error: $e');
     }
   }
 
@@ -83,10 +118,18 @@ class _AppRootState extends State<AppRoot> {
       );
     }
 
+    // Desktop: show folder setup screen if no music folders configured
+    if (_needsFolderSetup && _isDesktop) {
+      return _DesktopFolderSetup(onReady: () async {
+        await rescanLibrary();
+      });
+    }
+
     return DuskTuneShell(
       allSongs: _songs,
       tabIndex: _tabIndex,
       onTabChanged: setTab,
+      isDesktop: _isDesktop,
     );
   }
 }
@@ -96,12 +139,14 @@ class DuskTuneShell extends StatefulWidget {
   final List<Song> allSongs;
   final int tabIndex;
   final ValueChanged<int> onTabChanged;
+  final bool isDesktop;
 
   const DuskTuneShell({
     super.key,
     required this.allSongs,
     required this.tabIndex,
     required this.onTabChanged,
+    this.isDesktop = false,
   });
 
   @override
@@ -169,8 +214,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   void _listenToPlayback() {
-    AudioPlayerService.playbackState.listen((state) {
-      if (mounted) setState(() => _isPlaying = state?.playing ?? false);
+    // Use playingStateStream which works on ALL platforms (Android + desktop)
+    AudioPlayerService.playingStateStream.listen((playing) {
+      if (mounted) setState(() => _isPlaying = playing);
     });
     AudioPlayerService.positionStream.listen((pos) {
       if (mounted) setState(() => _position = pos);
@@ -297,7 +343,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+    // Build the scaffold content
+    Widget content = Scaffold(
       body: SafeArea(
         child: Column(
           children: [
@@ -312,6 +361,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   _buildHomeTab(),
                   _buildSearchTab(),
                   _buildLibraryTab(),
+                  if (widget.isDesktop) const _SettingsContent(),
                 ],
               ),
             ),
@@ -322,6 +372,46 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         ),
       ),
     );
+
+    // Wrap with keyboard shortcuts on desktop
+    if (isDesktop) {
+      content = Shortcuts(
+        shortcuts: <LogicalKeySet, Intent>{
+          LogicalKeySet(LogicalKeyboardKey.tab): const _ShuffleGridIntent(),
+          LogicalKeySet(LogicalKeyboardKey.digit1): const _PlayTileIntent(0),
+          LogicalKeySet(LogicalKeyboardKey.digit2): const _PlayTileIntent(1),
+          LogicalKeySet(LogicalKeyboardKey.digit3): const _PlayTileIntent(2),
+          LogicalKeySet(LogicalKeyboardKey.digit4): const _PlayTileIntent(3),
+          LogicalKeySet(LogicalKeyboardKey.digit5): const _PlayTileIntent(4),
+          LogicalKeySet(LogicalKeyboardKey.digit6): const _PlayTileIntent(5),
+          LogicalKeySet(LogicalKeyboardKey.digit7): const _PlayTileIntent(6),
+          LogicalKeySet(LogicalKeyboardKey.digit8): const _PlayTileIntent(7),
+          LogicalKeySet(LogicalKeyboardKey.digit9): const _PlayTileIntent(8),
+        },
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            _ShuffleGridIntent: CallbackAction<_ShuffleGridIntent>(
+              onInvoke: (_) {
+                shuffleTopNine(context);
+                return null;
+              },
+            ),
+            _PlayTileIntent: CallbackAction<_PlayTileIntent>(
+              onInvoke: (intent) {
+                final topSongs = getTopSongs(9);
+                if (intent.index < topSongs.length) {
+                  playSong(topSongs[intent.index], queue: topSongs);
+                }
+                return null;
+              },
+            ),
+          },
+          child: content,
+        ),
+      );
+    }
+
+    return content;
   }
 
   /// Top navigation bar with editable app name + tab buttons.
@@ -390,6 +480,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           _tabIcon(Icons.search_outlined, Icons.search, 1),
           const SizedBox(width: 4),
           _tabIcon(Icons.library_music_outlined, Icons.library_music, 2),
+          // Settings tab (desktop only)
+          if (widget.isDesktop) ...[
+            const SizedBox(width: 4),
+            _tabIcon(Icons.settings_outlined, Icons.settings, 3),
+          ],
         ],
       ),
     );
@@ -456,19 +551,27 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 0.9,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+                // On desktop, cap tile height so grid doesn't dominate the viewport
+                final maxTileHeight = isDesktop ? 180.0 : double.infinity;
+                return GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    childAspectRatio: isDesktop ? 1.0 : 0.9,
+                    mainAxisExtent: isDesktop ? maxTileHeight : null,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
               itemCount: topSongs.length,
               itemBuilder: (context, index) {
                 final song = topSongs[index];
                 return _buildTopTile(song, queue: topSongs);
+              },
+                );
               },
             ),
           ),
@@ -1052,4 +1155,352 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(covariant _SectionHeaderDelegate oldDelegate) {
     return label != oldDelegate.label;
   }
+}
+
+/// Desktop folder setup screen — shown on first launch when no music folders are configured.
+class _DesktopFolderSetup extends StatefulWidget {
+  final Future<void> Function() onReady;
+
+  const _DesktopFolderSetup({required this.onReady});
+
+  @override
+  State<_DesktopFolderSetup> createState() => _DesktopFolderSetupState();
+}
+
+class _DesktopFolderSetupState extends State<_DesktopFolderSetup> {
+  final TextEditingController _pathController = TextEditingController();
+  bool _scanning = false;
+
+  @override
+  void dispose() {
+    _pathController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _applyPath() async {
+    final path = _pathController.text.trim();
+    if (path.isEmpty) return;
+
+    setState(() => _scanning = true);
+    try {
+      await AppSettings.saveMusicFolders([path]);
+      if (mounted) {
+        setState(() => _scanning = false);
+        await widget.onReady();
+      }
+    } catch (e) {
+      debugPrint('_DesktopFolderSetup error: $e');
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.music_note_rounded,
+                    size: 80,
+                    color: Colors.grey[600],
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Welcome to dusktune',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Point dusktune at a folder containing your music files.\nSupported: MP3, FLAC, WAV, M4A, OGG, AAC, WMA, Opus.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Colors.grey[400]),
+                  ),
+                  const SizedBox(height: 32),
+                  TextField(
+                    controller: _pathController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. C:\\Users\\You\\Music',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey[800]!),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey[800]!),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: const BorderSide(color: Colors.white38),
+                      ),
+                    ),
+                    onSubmitted: (_) => _applyPath(),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _scanning ? null : _applyPath,
+                      icon: _scanning
+                          ? const SizedBox(
+                              width: 16, height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.folder_open),
+                      label: Text(_scanning ? 'Scanning...' : 'Scan Folder'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Settings content — music folder management (desktop only).
+class _SettingsContent extends StatefulWidget {
+  const _SettingsContent();
+
+  @override
+  State<_SettingsContent> createState() => _SettingsContentState();
+}
+
+class _SettingsContentState extends State<_SettingsContent> {
+  List<String> _folders = [];
+  bool _loading = true;
+  final TextEditingController _addPathController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFolders();
+  }
+
+  @override
+  void dispose() {
+    _addPathController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadFolders() async {
+    final folders = await AppSettings.loadMusicFolders();
+    if (mounted) {
+      setState(() {
+        _folders = folders;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _addFolder(String? path) async {
+    final trimmed = (path ?? _addPathController.text).trim();
+    if (trimmed.isEmpty) return;
+
+    final dir = Directory(trimmed);
+    if (!await dir.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Folder does not exist: $trimmed')),
+        );
+      }
+      return;
+    }
+
+    final updated = List<String>.from(_folders)..add(trimmed);
+    await AppSettings.saveMusicFolders(updated);
+    setState(() {
+      _folders = updated;
+      _addPathController.clear();
+    });
+
+    // Re-scan library
+    if (!mounted) return;
+    final shell = context.findAncestorStateOfType<_AppRootState>();
+    await shell?.rescanLibrary();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Added folder')),
+      );
+    }
+  }
+
+  Future<void> _removeFolder(int index) async {
+    final removed = _folders.removeAt(index);
+    await AppSettings.saveMusicFolders(_folders);
+    setState(() {});
+
+    // Re-scan library
+    if (!mounted) return;
+    final shell = context.findAncestorStateOfType<_AppRootState>();
+    await shell?.rescanLibrary();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Removed: $removed')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Music Folders',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[200],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'dusktune will scan these folders for audio files.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                ),
+                const SizedBox(height: 16),
+
+                // Add folder row
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _addPathController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'Enter folder path',
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey[800]!),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey[800]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.white38),
+                          ),
+                        ),
+                        onSubmitted: (_) => _addFolder(null),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _addFolder(null),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add'),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Folder list
+                if (_folders.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: Text(
+                        'No music folders configured.',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ),
+                  )
+                else
+                  ..._folders.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final folder = entry.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[900],
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.folder, size: 20, color: Colors.white54),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                folder,
+                                style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.white54),
+                              onPressed: () => _removeFolder(idx),
+                              tooltip: 'Remove',
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+
+                const SizedBox(height: 32),
+
+                // Info
+                Text(
+                  'Supported formats: MP3, FLAC, WAV, M4A, OGG, AAC, WMA, Opus\n\n'
+                  'Changes take effect immediately — your library is re-scanned when you add or remove a folder.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600], height: 1.6),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 80)),
+      ],
+    );
+  }
+}
+
+/// Intent for shuffling the top picks grid (Tab key).
+class _ShuffleGridIntent extends Intent {
+  const _ShuffleGridIntent();
+}
+
+/// Intent for playing a specific tile by number key (1-9).
+class _PlayTileIntent extends Intent {
+  final int index;
+  const _PlayTileIntent(this.index);
 }

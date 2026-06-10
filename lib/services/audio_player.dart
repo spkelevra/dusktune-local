@@ -2,12 +2,14 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_service/audio_service.dart';
+import 'package:audioplayers/audioplayers.dart' as ap;
 import '../models/song.dart';
 
-/// Singleton audio handler that runs in a background isolate.
+/// Singleton audio handler that runs in a background isolate (Android).
 class DuskAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   final AudioPlayer _player = AudioPlayer();
@@ -159,28 +161,164 @@ class DuskAudioHandler extends BaseAudioHandler
   AudioPlayer get player => _player;
 }
 
+/// Desktop audio handler — uses audioplayers which has native Windows/macOS/Linux support.
+class DesktopAudioHandler {
+  final ap.AudioPlayer _player = ap.AudioPlayer();
+  bool _playing = false;
+  final StreamController<bool> _playingController = StreamController<bool>.broadcast();
+  final StreamController<Duration> _positionController = StreamController<Duration>.broadcast();
+  final StreamController<Duration?> _durationController = StreamController<Duration?>.broadcast();
+  Timer? _positionTimer;
+
+  void Function()? onTrackComplete;
+  void Function()? onNextFromNotification;
+  void Function()? onPreviousFromNotification;
+
+  DesktopAudioHandler() {
+    _player.onPlayerStateChanged.listen((state) {
+      debugPrint('DesktopAudioHandler state: $state');
+      final wasPlaying = _playing;
+      _playing = state == ap.PlayerState.playing;
+      if (state == ap.PlayerState.stopped || state == ap.PlayerState.completed) {
+        _playing = false;
+        _positionTimer?.cancel();
+        if (state == ap.PlayerState.completed && onTrackComplete != null) {
+          onTrackComplete!();
+        }
+      }
+      if (state == ap.PlayerState.playing) {
+        _startPositionTimer();
+      }
+      // Notify UI of playing state change
+      if (_playing != wasPlaying) {
+        _playingController.add(_playing);
+      }
+    });
+    _player.onDurationChanged.listen((duration) {
+      debugPrint('DesktopAudioHandler duration: $duration');
+      _durationController.add(duration);
+    });
+    _player.onPositionChanged.listen((pos) {
+      _positionController.add(pos);
+    });
+    _player.onPlayerComplete.listen((_) {
+      debugPrint('DesktopAudioHandler: track completed');
+      _playing = false;
+      _positionTimer?.cancel();
+      if (onTrackComplete != null) {
+        onTrackComplete!();
+      }
+    });
+  }
+
+  void _startPositionTimer() {
+    _positionTimer?.cancel();
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+      try {
+        final pos = await _player.getCurrentPosition();
+        if (pos != null) {
+          _positionController.add(pos);
+        }
+      } catch (_) {}
+    });
+  }
+
+  Future<void> playSong(Song song) async {
+    debugPrint('DesktopAudioHandler.playSong: ${song.title} path=${song.uri}');
+
+    // Verify file exists
+    final filePath = song.uri;
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        debugPrint('DesktopAudioHandler.playSong: FILE NOT FOUND at $filePath');
+        throw Exception('File not found: $filePath');
+      }
+      debugPrint('DesktopAudioHandler.playSong: file exists, size=${await file.length()} bytes');
+    } catch (e) {
+      debugPrint('DesktopAudioHandler.playSong: file check failed: $e');
+    }
+
+    try {
+      await _player.stop();
+      await _player.setSourceDeviceFile(filePath);
+      await _player.resume();
+      debugPrint('DesktopAudioHandler.playSong: success for ${song.title}');
+    } catch (e) {
+      debugPrint('DesktopAudioHandler.playSong FAILED for ${song.title}: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> play() async {
+    await _player.resume();
+    _playing = true;
+  }
+
+  Future<void> pause() async {
+    await _player.pause();
+    _playing = false;
+  }
+
+  Future<void> stop() async {
+    await _player.stop();
+    _playing = false;
+    _positionTimer?.cancel();
+  }
+
+  Future<void> seek(Duration position) async {
+    await _player.seek(position);
+  }
+
+  bool get isPlaying => _playing;
+  Stream<bool> get playingStateStream => _playingController.stream;
+  Stream<Duration> get positionStream => _positionController.stream;
+  Stream<Duration?> get durationStream => _durationController.stream;
+
+  void dispose() {
+    _positionTimer?.cancel();
+    _playingController.close();
+    _positionController.close();
+    _durationController.close();
+    _player.dispose();
+  }
+}
+
 /// Facade class that the UI interacts with.
 class AudioPlayerService {
-  static DuskAudioHandler? _handler;
+  static DuskAudioHandler? _handler;       // Android (audio_service)
+  static DesktopAudioHandler? _desktopHandler; // Desktop (just_audio direct)
+  static final bool _isDesktop = !Platform.isAndroid && !Platform.isIOS;
 
   /// Initialize the audio service (call once in main()).
   static Future<void> init() async {
-    _handler = await AudioService.init(
-      builder: () => DuskAudioHandler(),
-      config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.spkelevra.dusktune.channel.audio',
-        androidNotificationChannelName: 'DuskTune playback',
-        androidShowNotificationBadge: true,
-        androidStopForegroundOnPause: false,
-      ),
-    );
+    if (_isDesktop) {
+      // Desktop: use just_audio directly — no background isolate needed.
+      _desktopHandler = DesktopAudioHandler();
+      debugPrint('AudioPlayerService: initialized for desktop');
+    } else {
+      // Android/iOS: use audio_service with background isolate + notifications.
+      _handler = await AudioService.init(
+        builder: () => DuskAudioHandler(),
+        config: const AudioServiceConfig(
+          androidNotificationChannelId: 'com.spkelevra.dusktune.channel.audio',
+          androidNotificationChannelName: 'DuskTune playback',
+          androidShowNotificationBadge: true,
+          androidStopForegroundOnPause: false,
+        ),
+      );
+      debugPrint('AudioPlayerService: initialized with audio_service');
+    }
   }
 
   static DuskAudioHandler? get handler => _handler;
+  static DesktopAudioHandler? get desktopHandler => _desktopHandler;
+  static bool get isDesktop => _isDesktop;
 
   /// Set a callback for when the current track finishes playing.
   static void setOnTrackComplete(void Function()? callback) {
     _handler?.onTrackComplete = callback;
+    _desktopHandler?.onTrackComplete = callback;
   }
 
   /// Set callbacks for notification panel next/previous buttons.
@@ -190,42 +328,74 @@ class AudioPlayerService {
   }) {
     _handler?.onNextFromNotification = onNext;
     _handler?.onPreviousFromNotification = onPrevious;
+    _desktopHandler?.onNextFromNotification = onNext;
+    _desktopHandler?.onPreviousFromNotification = onPrevious;
   }
 
   /// Play a song.
   static Future<void> playSong(Song song) async {
-    await _handler?.playSong(song);
+    if (_isDesktop) {
+      await _desktopHandler?.playSong(song);
+    } else {
+      await _handler?.playSong(song);
+    }
   }
 
   /// Toggle play/pause.
   static Future<void> togglePlayPause() async {
-    if (_handler == null) return;
-    final state = _handler!.playbackState.value;
-    if (state.playing) {
-      await pause();
+    if (_isDesktop) {
+      final dh = _desktopHandler;
+      if (dh == null) return;
+      if (dh.isPlaying) {
+        await dh.pause();
+      } else {
+        await dh.play();
+      }
     } else {
-      await play();
+      if (_handler == null) return;
+      final state = _handler!.playbackState.value;
+      if (state.playing) {
+        await pause();
+      } else {
+        await play();
+      }
     }
   }
 
   /// Play.
   static Future<void> play() async {
-    await _handler?.play();
+    if (_isDesktop) {
+      await _desktopHandler?.play();
+    } else {
+      await _handler?.play();
+    }
   }
 
   /// Pause.
   static Future<void> pause() async {
-    await _handler?.pause();
+    if (_isDesktop) {
+      await _desktopHandler?.pause();
+    } else {
+      await _handler?.pause();
+    }
   }
 
   /// Stop playback.
   static Future<void> stop() async {
-    await _handler?.stop();
+    if (_isDesktop) {
+      await _desktopHandler?.stop();
+    } else {
+      await _handler?.stop();
+    }
   }
 
   /// Seek to position.
   static Future<void> seek(Duration position) async {
-    await _handler?.seek(position);
+    if (_isDesktop) {
+      await _desktopHandler?.seek(position);
+    } else {
+      await _handler?.seek(position);
+    }
   }
 
   /// Skip to next song in queue.
@@ -238,16 +408,41 @@ class AudioPlayerService {
     await _handler?.skipToQueueItem(0);
   }
 
-  /// Current playback state stream.
+  /// Current playback state stream (Android only).
   static Stream<PlaybackState?> get playbackState {
     return _handler?.playbackState.stream ?? const Stream.empty();
   }
 
+  /// Playing state stream that works on ALL platforms.
+  /// Emits true when playing starts, false when paused/stopped/completed.
+  static Stream<bool> get playingStateStream {
+    if (_isDesktop) {
+      final dh = _desktopHandler;
+      if (dh != null) return dh.playingStateStream;
+    } else {
+      // On Android, derive from playbackState stream
+      final handler = _handler;
+      if (handler != null) {
+        return handler.playbackState.stream.map((state) => state.playing);
+      }
+    }
+    return const Stream.empty();
+  }
+
+  /// Whether currently playing.
+  static bool get isPlaying {
+    if (_isDesktop) return _desktopHandler?.isPlaying ?? false;
+    return _handler?.playbackState.value.playing ?? false;
+  }
+
   /// Current position stream from just_audio (if available).
   static Stream<Duration> get positionStream {
-    final handler = _handler;
-    if (handler != null) {
-      return handler.player.positionStream;
+    if (_isDesktop) {
+      final dh = _desktopHandler;
+      if (dh != null) return dh.positionStream;
+    } else {
+      final handler = _handler;
+      if (handler != null) return handler.player.positionStream;
     }
     // Fallback: emit zero periodically so UI doesn't crash.
     return Stream.periodic(const Duration(milliseconds: 500), (_) => Duration.zero);
@@ -255,9 +450,12 @@ class AudioPlayerService {
 
   /// Current duration stream.
   static Stream<Duration?> get durationStream {
-    final handler = _handler;
-    if (handler != null) {
-      return handler.player.durationStream;
+    if (_isDesktop) {
+      final dh = _desktopHandler;
+      if (dh != null) return dh.durationStream;
+    } else {
+      final handler = _handler;
+      if (handler != null) return handler.player.durationStream;
     }
     return const Stream.empty();
   }

@@ -14,10 +14,13 @@ dependencies:
   cupertino_icons: ^1.0.8
   provider: ^6.1.2
   shared_preferences: ^2.3.2
-  permission_handler: ^11.3.1
   just_audio: ^0.10.5
   audio_service: ^0.18.18
   on_audio_query: ^2.9.0
+  id3: 1.0.2
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  audioplayers: ^6.5.0
 
 dev_dependencies:
   flutter_test:

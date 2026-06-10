@@ -36,7 +36,7 @@ class Song {
       ? '$title — $artist'
       : title;
 
-  /// Create a [Song] from an [on_audio_query] SongModel entry.
+  /// Create a [Song] from an [on_audio_query] SongModel entry (Android).
   factory Song.fromSongModel(SongModel songModel) {
     return Song(
       id: songModel.id,
@@ -45,6 +45,25 @@ class Song {
       album: songModel.album,
       duration: songModel.duration ?? 0,
       uri: songModel.data,
+    );
+  }
+
+  /// Create a [Song] from a map of metadata (desktop scanner).
+  factory Song.fromMap({
+    required int id,
+    required String title,
+    String? artist,
+    String? album,
+    int duration = 0,
+    required String uri,
+  }) {
+    return Song(
+      id: id,
+      title: title,
+      artist: artist,
+      album: album,
+      duration: duration,
+      uri: uri,
     );
   }
 
