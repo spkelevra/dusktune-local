@@ -172,6 +172,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Set whenever a song is tapped — grid order, alphabetical, or search results.
   List<Song> _playQueue = [];
   int _playQueueIndex = -1;
+  // Last-tapped tile in the top-9 grid (by index into topSongs).
+  int? _selectedGridTile;
   // Keyboard focus node for desktop shortcuts (always focused, never visible)
   final FocusNode _keyboardFocusNode = FocusNode(skipTraversal: true);
 
@@ -594,7 +596,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               itemCount: topSongs.length,
               itemBuilder: (context, index) {
                 final song = topSongs[index];
-                return _buildTopTile(song, queue: topSongs);
+                return _buildTopTile(
+                  song,
+                  queue: topSongs,
+                  isSelected: _selectedGridTile == index,
+                  onTap: () {
+                    setState(() => _selectedGridTile = index);
+                    playSong(song, queue: topSongs);
+                  },
+                );
               },
                 );
               },
@@ -655,19 +665,33 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   /// Top tile with generated pattern.
-  Widget _buildTopTile(Song song, {List<Song>? queue}) {
+  Widget _buildTopTile(
+    Song song, {
+    List<Song>? queue,
+    bool isSelected = false,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
-      onTap: () => playSong(song, queue: queue),
+      onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Expanded(
             flex: 3,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: AspectRatio(
-                aspectRatio: 1.0,
-                child: TitlePattern(title: song.title),
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: isSelected ? Colors.grey[500]! : Colors.transparent,
+                  width: isSelected ? 1.0 : 0,
+                ),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: AspectRatio(
+                  aspectRatio: 1.0,
+                  child: TitlePattern(title: song.title),
+                ),
               ),
             ),
           ),
