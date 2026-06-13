@@ -433,7 +433,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     // Space → toggle play/pause
     if (key == LogicalKeyboardKey.space) {
       AudioPlayerService.togglePlayPause();
-      setState(() => _isPlaying = AudioPlayerService.isPlaying);
+      setState(() => _isPlaying = !_isPlaying);
       return;
     }
 
@@ -1054,7 +1054,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   onTap: () {
                     AudioPlayerService.togglePlayPause();
                     // Force UI sync — stream emission may lag on release builds
-                    setState(() => _isPlaying = AudioPlayerService.isPlaying);
+                    setState(() => _isPlaying = !_isPlaying);
                   },
                   child: Container(
                     width: 36,
