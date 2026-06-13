@@ -179,6 +179,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Debounce: prevent re-entry while playSong is in flight
   bool _isTransitioning = false;
 
+  // Pinned grid: tile index (0-8) → Song, persisted across sessions.
+  final Map<int, Song> _pinnedGrid = {};
+
+  // Pin mode: overlay for assigning current song to a tile.
+  bool _pinMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -210,6 +216,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         _playCounts.addAll(playCounts);
       });
     }
+      // Load pinned grid after settings are loaded
+      await _loadPinnedGrid(widget.allSongs);
   }
 
   Future<void> _savePlayCounts() async {
@@ -311,6 +319,77 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     });
   }
 
+
+  // -- Pinned grid helpers --
+
+  /// Load pinned grid from persistent storage.
+  Future<void> _loadPinnedGrid(List<Song> allSongs) async {
+    final raw = await AppSettings.loadPinnedGrid();
+    if (mounted) {
+      setState(() {
+        for (final entry in raw.entries) {
+          final songData = entry.value;
+          final song = allSongs.firstWhere(
+            (s) => s.id == songData['id'],
+            orElse: () => Song(
+              id: songData['id'] as int,
+              title: songData['title'] as String? ?? 'Unknown',
+              uri: songData['uri'] as String? ?? '',
+              duration: songData['duration'] as int? ?? 0,
+            ),
+          );
+          _pinnedGrid[entry.key] = song;
+        }
+      });
+    }
+  }
+
+  /// Save pinned grid to persistent storage.
+  Future<void> _savePinnedGrid() async {
+    final raw = _pinnedGrid.map((k, v) => MapEntry(k, v.toJson()));
+    await AppSettings.savePinnedGrid(raw);
+  }
+
+  /// Pin the currently playing song to a specific tile (0-8).
+  Future<void> pinCurrentSongToTile(int tileIndex) async {
+    if (_currentSong == null) return;
+    setState(() {
+      _pinnedGrid[tileIndex] = _currentSong!;
+    });
+    await _savePinnedGrid();
+  }
+
+  /// Unpin a tile (remove pinned song).
+  Future<void> unpinTile(int tileIndex) async {
+    setState(() {
+      _pinnedGrid.remove(tileIndex);
+    });
+    await _savePinnedGrid();
+  }
+
+  /// Build the list of 9 songs for the grid display.
+  /// When shuffled (_shuffledTopNine is set), shows pure shuffle — no pins.
+  /// Otherwise, pinned tiles show their song; unpinned slots use getTopSongs fallback.
+  List<Song> getGridSongs() {
+    // If in shuffle mode, show pure shuffle (pins hidden)
+    if (_shuffledTopNine != null) return _shuffledTopNine!.take(9).toList();
+
+    final base = getTopSongs(9);
+    final result = <Song>[];
+    int baseIndex = 0;
+
+    for (int i = 0; i < 9; i++) {
+      if (_pinnedGrid.containsKey(i)) {
+        result.add(_pinnedGrid[i]!);
+      } else if (baseIndex < base.length) {
+        result.add(base[baseIndex++]);
+      } else {
+        break;
+      }
+    }
+
+    return result;
+  }
   /// Get recently played songs in reverse chronological order.
   List<Song> getRecentSongs() {
     if (_recentlyPlayed.isEmpty) return widget.allSongs;
@@ -561,124 +640,288 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   /// Home tab content.
+
+  /// Home tab content.
   Widget _buildHomeTab() {
-    final topSongs = getTopSongs(9);
+    final gridSongs = getGridSongs();
 
-    return CustomScrollView(
-      slivers: [
-        // Spacing above the grid (replaces former top picks header)
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 16),
-        ),
-
-        // Top 9 grid
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
-                // On desktop, cap tile height so grid doesn't dominate the viewport
-                final maxTileHeight = isDesktop ? 180.0 : double.infinity;
-                return GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    childAspectRatio: isDesktop ? 1.0 : 0.9,
-                    mainAxisExtent: isDesktop ? maxTileHeight : null,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                  ),
-              itemCount: topSongs.length,
-              itemBuilder: (context, index) {
-                final song = topSongs[index];
-                return _buildTopTile(
-                  song,
-                  queue: topSongs,
-                  isSelected: _selectedGridTile == index,
-                  onTap: () {
-                    setState(() => _selectedGridTile = index);
-                    playSong(song, queue: topSongs);
-                  },
-                );
-              },
-                );
-              },
+    return Stack(
+      children: [
+        CustomScrollView(
+          slivers: [
+            // Spacing above the grid (replaces former top picks header)
+            const SliverToBoxAdapter(
+              child: SizedBox(height: 16),
             ),
-          ),
-        ),
 
-        // Recent songs section header
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'recent songs',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white70,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextButton(
-                      onPressed: resetTopPicks,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        minimumSize: const Size(0, 28),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            // Top 9 grid
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+                    // On desktop, cap tile height so grid doesn't dominate the viewport
+                    final maxTileHeight = isDesktop ? 180.0 : double.infinity;
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        childAspectRatio: isDesktop ? 1.0 : 0.9,
+                        mainAxisExtent: isDesktop ? maxTileHeight : null,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
                       ),
-                      child: const Text(
-                        'top picks',
-                        style: TextStyle(fontSize: 12, color: Colors.white54),
+                      itemCount: gridSongs.length,
+                      itemBuilder: (context, index) {
+                        final song = gridSongs[index];
+                        return _buildTopTile(
+                          song,
+                          queue: gridSongs,
+                          isSelected: _selectedGridTile == index,
+                          onTap: () {
+                            setState(() => _selectedGridTile = index);
+                            playSong(song, queue: gridSongs);
+                          },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Recent songs section header
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'recent songs',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white70,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    TextButton.icon(
-                      onPressed: () => shuffleTopNine(context),
-                      icon: const Icon(Icons.shuffle, size: 16, color: Colors.white54),
-                      label: const Text(
-                        'shuffle',
-                        style: TextStyle(fontSize: 12, color: Colors.white54),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        minimumSize: const Size(0, 28),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // "The Grid" button — tap restores pinned grid, long-press/right-click enters pin mode
+                        GestureDetector(
+                          onSecondaryTap: () {
+                            if (_currentSong != null) {
+                              setState(() => _pinMode = true);
+                            }
+                          },
+                          onLongPress: () {
+                            if (_currentSong != null) {
+                              setState(() => _pinMode = true);
+                            }
+                          },
+                          child: TextButton(
+                            onPressed: () {
+                              // Restore pinned grid by clearing shuffle, then scroll to top
+                              resetTopPicks();
+                              final scrollable = Scrollable.of(context);
+                              scrollable.position.animateTo(
+                                0,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              );
+                            },
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: const Size(0, 28),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'the grid',
+                              style: TextStyle(fontSize: 12, color: Colors.white54),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        // Shuffle button — original behavior preserved
+                        TextButton.icon(
+                          onPressed: () => shuffleTopNine(context),
+                          icon: const Icon(Icons.shuffle, size: 16, color: Colors.white54),
+                          label: const Text(
+                            'shuffle',
+                            style: TextStyle(fontSize: 12, color: Colors.white54),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            minimumSize: const Size(0, 28),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
+
+            // Recent songs list (ordered by last played)
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final recentSongs = getRecentSongs();
+                  if (index >= recentSongs.length) return const SizedBox.shrink();
+                  final song = recentSongs[index];
+                  return _buildSongListItem(song);
+                },
+                childCount: widget.allSongs.length,
+              ),
+            ),
+
+            // Bottom padding for player
+            const SliverToBoxAdapter(child: SizedBox(height: 80)),
+          ],
         ),
 
-        // Recent songs list (ordered by last played)
-        SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final recentSongs = getRecentSongs();
-              if (index >= recentSongs.length) return const SizedBox.shrink();
-              final song = recentSongs[index];
-              return _buildSongListItem(song);
-            },
-            childCount: widget.allSongs.length,
-          ),
-        ),
-
-        // Bottom padding for player
-        const SliverToBoxAdapter(child: SizedBox(height: 80)),
+        // Pin mode overlay — appears when user long-presses or right-clicks "the grid" button
+        if (_pinMode) _buildPinModeOverlay(gridSongs),
       ],
     );
   }
+
+
+  /// Pin mode overlay — semi-transparent dialog for assigning current song to a tile.
+  Widget _buildPinModeOverlay(List<Song> gridSongs) {
+    return Positioned.fill(
+      child: GestureDetector(
+        onTap: () => setState(() => _pinMode = false),
+        child: Container(
+          color: Colors.black54,
+          child: Center(
+            child: GestureDetector(
+              onTap: () {}, // prevent tap from propagating to dismiss
+              child: Container(
+                width: 320,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Pin current song to a tile',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                    if (_currentSong != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          _currentSong!.displayName,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.white70,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    // 3x3 grid for tile selection
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        childAspectRatio: 1.0,
+                        crossAxisSpacing: 6,
+                        mainAxisSpacing: 6,
+                      ),
+                      itemCount: 9,
+                      itemBuilder: (context, index) {
+                        final hasPinned = _pinnedGrid.containsKey(index);
+                        return GestureDetector(
+                          onTap: () async {
+                            await pinCurrentSongToTile(index);
+                            setState(() => _pinMode = false);
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: hasPinned ? Colors.white12 : Colors.grey[850],
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: hasPinned ? Colors.white38 : Colors.white12,
+                                width: 1,
+                              ),
+                            ),
+                            child: Stack(
+                              children: [
+                                const Center(
+                                  child: Icon(
+                                    Icons.push_pin_outlined,
+                                    size: 20,
+                                    color: Colors.white38,
+                                  ),
+                                ),
+                                if (hasPinned)
+                                  Positioned(
+                                    top: 2,
+                                    right: 2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white54,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.push_pin,
+                                        size: 10,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                Positioned(
+                                  bottom: 2,
+                                  left: 4,
+                                  child: Text(
+                                    '${index + 1}',
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      color: Colors.white38,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: () => setState(() => _pinMode = false),
+                      child: const Text('Cancel',
+                          style: TextStyle(fontSize: 12, color: Colors.white54)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
 
   /// Top tile with generated pattern.
   Widget _buildTopTile(
