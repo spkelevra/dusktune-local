@@ -973,6 +973,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         children: [
           // Progress bar (thin) — minHeight increased slightly for easier touch detection
           GestureDetector(
+            onTapDown: (tapDetails) {
+              final box = context.findRenderObject() as RenderBox?;
+              if (box != null && _duration.inMilliseconds > 0) {
+                final x = tapDetails.globalPosition.dx - box.localToGlobal(Offset.zero).dx;
+                final ratio = x.clamp(0.0, box.size.width) / box.size.width;
+                AudioPlayerService.seek(Duration(
+                  milliseconds: (_duration.inMilliseconds * ratio).round(),
+                ));
+              }
+            },
             onHorizontalDragUpdate: (details) {
               final box = context.findRenderObject() as RenderBox?;
               if (box != null) {
