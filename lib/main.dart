@@ -556,41 +556,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
     return CustomScrollView(
       slivers: [
-        // Top 9 section with shuffle button
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                GestureDetector(
-                  onTap: resetTopPicks,
-                  child: const Text(
-                    'top picks',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white70,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => shuffleTopNine(context),
-                  icon: const Icon(Icons.shuffle, size: 16, color: Colors.white54),
-                  label: const Text(
-                    'shuffle',
-                    style: TextStyle(fontSize: 12, color: Colors.white54),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(0, 28),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        // Spacing above the grid (replaces former top picks header)
+        const SliverToBoxAdapter(
+          child: SizedBox(height: 16),
         ),
 
         // Top 9 grid
@@ -647,17 +615,36 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     letterSpacing: 0.5,
                   ),
                 ),
-                TextButton(
-                  onPressed: () => widget.onTabChanged(2),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    minimumSize: const Size(0, 28),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text(
-                    'see all',
-                    style: TextStyle(fontSize: 12, color: Colors.white54),
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: resetTopPicks,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text(
+                        'top picks',
+                        style: TextStyle(fontSize: 12, color: Colors.white54),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    TextButton.icon(
+                      onPressed: () => shuffleTopNine(context),
+                      icon: const Icon(Icons.shuffle, size: 16, color: Colors.white54),
+                      label: const Text(
+                        'shuffle',
+                        style: TextStyle(fontSize: 12, color: Colors.white54),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
