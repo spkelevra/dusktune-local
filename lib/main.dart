@@ -794,7 +794,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: Text(
+      trailing: _isDesktop ? null : Text(
         song.formattedDuration,
         style: const TextStyle(fontSize: 11, color: Colors.white38),
       ),
@@ -1207,7 +1207,7 @@ class _SearchContentState extends State<_SearchContent> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: Text(
+                  trailing: Platform.isWindows || Platform.isMacOS || Platform.isLinux ? null : Text(
                     song.formattedDuration,
                     style: const TextStyle(fontSize: 11, color: Colors.white38),
                   ),
