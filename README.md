@@ -10,11 +10,11 @@ A minimalist, opinionated dark-mode music player for Android, Windows, and macOS
 
 ## Platforms
 
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Android  | ✅ Stable | Uses `on_audio_query` for media library access |
-| Windows  | ✅ Stable | Manual music folder selection via Settings tab |
-| macOS    | ✅ Stable | Manual music folder selection via Settings tab |
+| Platform |
+|----------|
+| Android  |
+| Windows  |
+| macOS    | 
 
 ## Desktop Setup (Windows / macOS)
 
