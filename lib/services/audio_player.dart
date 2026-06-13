@@ -174,6 +174,7 @@ class DesktopAudioHandler {
   void Function()? onNextFromNotification;
   void Function()? onPreviousFromNotification;
 
+
   DesktopAudioHandler() {
     _player.onPlayerStateChanged.listen((state) {
       debugPrint('DesktopAudioHandler state: $state');
@@ -182,9 +183,8 @@ class DesktopAudioHandler {
       if (state == ap.PlayerState.stopped || state == ap.PlayerState.completed) {
         _playing = false;
         _positionTimer?.cancel();
-        if (state == ap.PlayerState.completed && onTrackComplete != null) {
-          onTrackComplete!();
-        }
+        // NOTE: onTrackComplete is handled by onPlayerComplete below —
+        // do NOT fire it here to avoid double-firing.
       }
       if (state == ap.PlayerState.playing) {
         _startPositionTimer();
@@ -210,6 +210,7 @@ class DesktopAudioHandler {
       }
     });
   }
+
 
   void _startPositionTimer() {
     _positionTimer?.cancel();
@@ -240,6 +241,8 @@ class DesktopAudioHandler {
     }
 
     try {
+      // Reset position to zero before loading new track — prevents stale progress bar
+      _positionController.add(Duration.zero);
       await _player.stop();
       await _player.setSourceDeviceFile(filePath);
       await _player.resume();

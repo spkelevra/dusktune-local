@@ -176,6 +176,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   int? _selectedGridTile;
   // Keyboard focus node for desktop shortcuts (always focused, never visible)
   final FocusNode _keyboardFocusNode = FocusNode(skipTraversal: true);
+  // Debounce: prevent re-entry while playSong is in flight
+  bool _isTransitioning = false;
 
   @override
   void initState() {
@@ -243,6 +245,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// If [queue] is provided, use it for next/previous navigation.
   /// If omitted, default to alphabetical (allSongs).
   void playSong(Song song, {List<Song>? queue}) async {
+    _isTransitioning = true;
     // Track play count and recent order
     setState(() {
       _playCounts[song.id] = (_playCounts[song.id] ?? 0) + 1;
@@ -261,7 +264,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     await AudioPlayerService.playSong(song);
     // Force UI sync — stream may not have emitted yet on desktop release builds
     if (mounted) {
-      setState(() => _isPlaying = AudioPlayerService.isPlaying);
+      setState(() {
+        _isPlaying = AudioPlayerService.isPlaying;
+        _isTransitioning = false;  // Clear transition flag so next auto-advance can fire
+      });
     }
   }
 
@@ -326,6 +332,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   /// Override skipToNext to pick random song when shuffle is on, or next in play queue.
   void _skipToNext() {
+    // Debounce: prevent re-entry while a track transition is in flight
+    if (_isTransitioning) return;
     if (_shuffleAll) {
       final rng = math.Random();
       final randomSong = widget.allSongs[rng.nextInt(widget.allSongs.length)];
@@ -343,6 +351,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   /// Override skipToPrevious to pick random song when shuffle is on, or previous in play queue.
   void _skipToPrevious() {
+    // Debounce: prevent re-entry while a track transition is in flight
+    if (_isTransitioning) return;
     if (_shuffleAll) {
       final rng = math.Random();
       final randomSong = widget.allSongs[rng.nextInt(widget.allSongs.length)];
