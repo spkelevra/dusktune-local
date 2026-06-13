@@ -8,6 +8,7 @@ class AppSettings {
   static const String _kAppName = 'app_name';
   static const String _kPlayCounts = 'play_counts_v1'; // bump suffix on schema change
   static const String _kMusicFolders = 'music_folders_v1';
+  static const String _kPinnedGrid = 'pinned_grid_v1';
 
   /// Load saved app name, or return default.
   static Future<String> loadAppName() async {
@@ -52,5 +53,25 @@ class AppSettings {
   static Future<void> saveMusicFolders(List<String> folders) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_kMusicFolders, folders);
+  }
+
+  /// Load pinned grid: tile index (0-8) → song JSON map.
+  static Future<Map<int, Map<String, dynamic>>> loadPinnedGrid() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kPinnedGrid);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return map.map((k, v) => MapEntry(int.parse(k), v as Map<String, dynamic>));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Save pinned grid persistently.
+  static Future<void> savePinnedGrid(Map<int, Map<String, dynamic>> grid) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = jsonEncode(grid.map((k, v) => MapEntry(k.toString(), v)));
+    await prefs.setString(_kPinnedGrid, raw);
   }
 }
