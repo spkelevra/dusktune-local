@@ -884,6 +884,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       itemCount: 9,
                       itemBuilder: (context, index) {
                         final hasPinned = _pinnedGrid.containsKey(index);
+                        final Song? pinnedSong = hasPinned ? _pinnedGrid[index] : null;
                         return GestureDetector(
                           onTap: () async {
                             await pinCurrentSongToTile(index);
@@ -891,23 +892,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           },
                           child: Container(
                             decoration: BoxDecoration(
-                              color: hasPinned ? Colors.white12 : Colors.grey[850],
+                              color: hasPinned ? Colors.white24 : Colors.grey[850],
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
-                                color: hasPinned ? Colors.white38 : Colors.white12,
+                                color: hasPinned ? Colors.white70 : Colors.white12,
                                 width: 1,
                               ),
                             ),
                             child: Stack(
                               children: [
-                                const Center(
-                                  child: Icon(
-                                    Icons.push_pin_outlined,
-                                    size: 20,
-                                    color: Colors.white38,
-                                  ),
-                                ),
-                                if (hasPinned)
+                                if (hasPinned) ...[
                                   Positioned(
                                     top: 2,
                                     right: 2,
@@ -924,17 +918,31 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                       ),
                                     ),
                                   ),
-                                Positioned(
-                                  bottom: 2,
-                                  left: 4,
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: const TextStyle(
-                                      fontSize: 9,
-                                      color: Colors.white38,
+                                  Positioned(
+                                    bottom: 2,
+                                    left: 4,
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(
+                                        fontSize: 9,
+                                        color: Colors.white38,
+                                      ),
                                     ),
                                   ),
-                                ),
+                                  // Show pinned song title centered
+                                  Center(
+                                    child: Text(
+                                      pinnedSong?.title ?? '',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.white,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
