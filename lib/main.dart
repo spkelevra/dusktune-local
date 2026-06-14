@@ -504,7 +504,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// Handle desktop keyboard shortcuts.
   void _handleKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return;
-    if (event is! KeyDownEvent) return;
      final key = event.logicalKey;
 
      // Disable all hotkeys on Search tab so typing in the search field works normally.
@@ -767,7 +766,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                               setState(() => _pinMode = true);
                             }
                           },
-                          child: TextButton(
+                          child: TextButton.icon(
                             onPressed: () {
                               // Restore pinned grid by clearing shuffle, then scroll to top
                               resetTopPicks();
@@ -778,14 +777,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                 curve: Curves.easeOut,
                               );
                             },
+                            icon: const Icon(Icons.grid_view, size: 16, color: Colors.white54),
+                            label: const Text(
+                              'the grid',
+                              style: TextStyle(fontSize: 12, color: Colors.white54),
+                            ),
                             style: TextButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               minimumSize: const Size(0, 28),
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            child: const Text(
-                              'the grid',
-                              style: TextStyle(fontSize: 12, color: Colors.white54),
                             ),
                           ),
                         ),
