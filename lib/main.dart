@@ -867,11 +867,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         color: Colors.white,
                       ),
                     ),
-                    if (_currentSong != null)
+                    // Show the song that will be pinned (from tile or current song)
+                    if (_pinSourceSong != null || _currentSong != null)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(
-                          _currentSong!.displayName,
+                          _pinSourceSong?.displayName ?? _currentSong?.displayName ?? '',
                           style: const TextStyle(
                             fontSize: 11,
                             color: Colors.white70,
