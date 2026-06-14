@@ -12,6 +12,7 @@ import 'services/music_library.dart';
 import 'services/music_scanner.dart' as desktop_scanner;
 import 'services/app_settings.dart';
 import 'widgets/tile_pattern.dart';
+import 'dart:async';
 
 /// Returns true if running on a desktop platform (Windows, macOS, Linux).
 bool get _isDesktop => Platform.isWindows || Platform.isMacOS || Platform.isLinux;
@@ -1435,9 +1436,11 @@ class _SearchContentState extends State<_SearchContent> {
   final TextEditingController _controller = TextEditingController();
   List<Song> _results = [];
   bool _searching = false;
+  Timer? _debounce;
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -1445,18 +1448,22 @@ class _SearchContentState extends State<_SearchContent> {
   Future<void> _doSearch(String q) async {
     if (q.trim().isEmpty) {
       setState(() => _results = []);
+      _debounce?.cancel();
       return;
     }
-    setState(() => _searching = true);
-    final lib = MusicLibrary();
-    await lib.init();
-    final results = await lib.search(q);
-    if (mounted) {
-      setState(() {
-        _results = results;
-        _searching = false;
-      });
-    }
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () async {
+      setState(() => _searching = true);
+      final lib = MusicLibrary();
+      await lib.init();
+      final results = await lib.search(q);
+      if (mounted) {
+        setState(() {
+          _results = results;
+          _searching = false;
+        });
+      }
+    });
   }
 
   @override

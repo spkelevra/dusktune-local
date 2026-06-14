@@ -9,12 +9,14 @@ import '../models/song.dart';
 import 'music_scanner.dart' as desktop_scanner;
 import 'app_settings.dart';
 
+
 class MusicLibrary {
   late final OnAudioQuery _audioQuery;
 
   MusicLibrary() : _audioQuery = OnAudioQuery();
 
-  // ---- Android (on_audio_query) ----
+
+  // ---- Android (on_audio_query) ---
 
   /// Check if storage/audio permission is granted (Android only).
   Future<bool> hasPermission() async {
@@ -70,7 +72,7 @@ class MusicLibrary {
 
     // Wrap the entire scan in a timeout so even if something goes wrong,
     // the app doesn't hang at startup. Total budget: 60s + 5s per folder.
-    final totalTimeout = Duration(seconds: 30 + (folders.length * 45));
+    final totalTimeout = Duration(seconds: 60 + (folders.length * 30));
     try {
       final songs = await desktop_scanner.scanMusicFolders(folders).timeout(totalTimeout);
       debugPrint('MusicLibrary (Desktop): loaded ${songs.length} songs');
@@ -81,22 +83,21 @@ class MusicLibrary {
     }
   }
 
-  // ---- Search ----
+  // ---- Search ---
 
-  /// Search songs by query string.
-  Future<List<Song>> search(String query) async {
-    if (query.isEmpty) return init();
-
-    final allSongs = await init();
-    
-    // Filter client-side
-    final lower = query.toLowerCase();
-    return allSongs.where((song) {
-      return song.title.toLowerCase().contains(lower) ||
-          (song.artist?.toLowerCase().contains(lower) ?? false) ||
-          (song.album?.toLowerCase().contains(lower) ?? false);
-    }).toList();
-  }
+   /// Search songs by query string.
+   Future<List<Song>> search(String query) async {
+     if (query.isEmpty) {
+       return [];
+     }
+     final allSongs = await init();
+     final lower = query.toLowerCase();
+     return allSongs.where((song) {
+       return song.title.toLowerCase().contains(lower) ||
+           (song.artist != null && song.artist!.toLowerCase().contains(lower)) ||
+           (song.album != null && song.album!.toLowerCase().contains(lower));
+     }).toList();
+   }
 
   /// Check if music folders are configured (desktop only).
   /// Returns true on Android regardless.
