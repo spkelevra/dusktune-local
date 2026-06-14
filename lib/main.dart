@@ -934,6 +934,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
     return GestureDetector(
       onTap: onTap,
+      onLongPress: () {
+        if (_currentSong != null) setState(() => _pinMode = true);
+      },
+      onSecondaryTap: () {
+        if (_currentSong != null) setState(() => _pinMode = true);
+      },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
