@@ -503,16 +503,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// Handle desktop keyboard shortcuts.
   void _handleKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return;
+    if (event is! KeyDownEvent) return;
+     final key = event.logicalKey;
 
-    final key = event.logicalKey;
+     // Disable all hotkeys on Search tab so typing in the search field works normally.
+     if (widget.tabIndex == 1) return;
 
-    // Disable navigation hotkeys on Search tab so typing in the search field works normally.
-    // Space (play/pause) remains active on all tabs — it is a global media control.
-    if (widget.tabIndex == 1) {
-      if (key != LogicalKeyboardKey.space) return;
-    }
-
-    // Backtick (`) → shuffle grid
+     // Backtick (`) → shuffle grid
     if (key == LogicalKeyboardKey.backquote) {
       shuffleTopNine(context);
       return;
