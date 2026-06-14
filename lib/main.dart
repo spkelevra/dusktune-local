@@ -560,9 +560,46 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       ),
       child: Row(
         children: [
-          // Editable app name
+          // App name — tap goes home, hold/right-click opens rename
           GestureDetector(
-            onTap: () {
+            onTap: () => widget.onTabChanged(0),
+            onLongPress: () {
+              showDialog<String>(
+                context: context,
+                builder: (ctx) {
+                  final ctrl = TextEditingController(text: _appName);
+                  return AlertDialog(
+                    title: const Text('Rename'),
+                    content: TextField(
+                      controller: ctrl,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: 'App name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          final name = ctrl.text.trim();
+                          if (name.isNotEmpty) {
+                            setState(() => _appName = name);
+                            _saveAppName(name);
+                          }
+                          Navigator.pop(ctx);
+                        },
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+            onSecondaryTap: () {
               showDialog<String>(
                 context: context,
                 builder: (ctx) {
@@ -610,27 +647,25 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           ),
           const SizedBox(width: 8),
           // Tab buttons (icons only)
-          _tabIcon(Icons.home_outlined, Icons.home, 0),
+          _tabIcon(Icons.search, 1),
           const SizedBox(width: 4),
-          _tabIcon(Icons.search_outlined, Icons.search, 1),
-          const SizedBox(width: 4),
-          _tabIcon(Icons.library_music_outlined, Icons.library_music, 2),
+          _tabIcon(Icons.queue_music, 2),
           // Settings tab (desktop only)
           if (widget.isDesktop) ...[
             const SizedBox(width: 4),
-            _tabIcon(Icons.settings_outlined, Icons.settings, 3),
+            _tabIcon(Icons.tune, 3),
           ],
         ],
       ),
     );
   }
 
-  Widget _tabIcon(IconData outlinedIcon, IconData filledIcon, int index) {
+  Widget _tabIcon(IconData icon, int index) {
     final isActive = widget.tabIndex == index;
     return IconButton(
       onPressed: () => widget.onTabChanged(index),
       icon: Icon(
-        isActive ? filledIcon : outlinedIcon,
+        icon,
         size: 20,
         color: isActive ? Colors.white : Colors.white54,
       ),
