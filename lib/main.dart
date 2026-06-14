@@ -184,6 +184,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   // Pin mode: overlay for assigning current song to a tile.
   bool _pinMode = false;
+  Song? _pinSourceSong; // Song to pin when entering pin mode (from tile long-press or grid button)
 
   @override
   void initState() {
@@ -355,6 +356,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     if (_currentSong == null) return;
     setState(() {
       _pinnedGrid[tileIndex] = _currentSong!;
+    });
+    await _savePinnedGrid();
+  }
+
+  /// Pin a given song to a specific tile (0-8).
+  Future<void> pinSongToTile(Song song, int tileIndex) async {
+    setState(() {
+      _pinnedGrid[tileIndex] = song;
     });
     await _savePinnedGrid();
   }
@@ -750,11 +759,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         GestureDetector(
                           onSecondaryTap: () {
                             if (_currentSong != null) {
+                              _pinSourceSong = _currentSong;
                               setState(() => _pinMode = true);
                             }
                           },
                           onLongPress: () {
                             if (_currentSong != null) {
+                              _pinSourceSong = _currentSong;
                               setState(() => _pinMode = true);
                             }
                           },
@@ -887,8 +898,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         final Song? pinnedSong = hasPinned ? _pinnedGrid[index] : null;
                         return GestureDetector(
                           onTap: () async {
-                            await pinCurrentSongToTile(index);
+                            if (_pinSourceSong != null) {
+                              await pinSongToTile(_pinSourceSong!, index);
+                            }
                             setState(() => _pinMode = false);
+                            _pinSourceSong = null; // clear after use
                           },
                           child: Container(
                             decoration: BoxDecoration(
@@ -978,10 +992,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     return GestureDetector(
       onTap: onTap,
       onLongPress: () {
-        if (_currentSong != null) setState(() => _pinMode = true);
+        _pinSourceSong = song;
+        setState(() => _pinMode = true);
       },
       onSecondaryTap: () {
-        if (_currentSong != null) setState(() => _pinMode = true);
+        _pinSourceSong = song;
+        setState(() => _pinMode = true);
       },
       child: Column(
         mainAxisSize: MainAxisSize.min,
