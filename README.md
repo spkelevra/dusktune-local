@@ -4,9 +4,12 @@ A minimalist, opinionated dark-mode music player for Android, Windows, and macOS
 
 ## Features
 
-- **The Grid** — Quickly pull up shuffled tiles of tracks
-- **Fast** — Designed for speed, no thumbnails. No extra panes popping up when they aren't needed
-- **Cross-platform** — Native builds for Android, Windows, and macOS with desktop folder scanning and ID3 tag support
+- **The Grid** — A 3×3 grid of your top tracks, updated as you listen. Tap any tile to play instantly.
+- **Mixes** — Save your current grid layout as a named mix, load it back anytime, or delete old ones. Long-press (Android) or right-click (desktop) the mix button to save; tap to browse and load saved mixes.
+- **Pinned Grid** — Lock specific songs into grid tiles so they always stay in place. Right-click "the grid" button to enter pin mode.
+- **Shuffle** — Instantly randomize your top picks with one tap or the backtick (`) shortcut.
+- **Fast** — Designed for speed, no thumbnails. No extra panes popping up when they aren't needed.
+- **Cross-platform** — Native builds for Android, Windows, and macOS with desktop folder scanning and ID3 tag support.
 
 ## Platforms
 
