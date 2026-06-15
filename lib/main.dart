@@ -189,6 +189,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
     // Mixes: list of saved mixes, each with id, name, and songIds.
      final List<Map<String, dynamic>> _mixes = [];
+     final List<Song> _favorites = [];
 
      // Mix grid: temporary storage for a mix being displayed.
         List<Song>? _mixGridSongs;
@@ -197,11 +198,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         // Mix menu overlay
         bool _mixMenuOpen = false;
 
-        // Search state for library tab
+        // Search state for library/favorites tabs
         final TextEditingController _searchController = TextEditingController();
         List<Song> _searchResults = [];
         bool _isSearching = false;
         Timer? _searchDebounce;
+
+        // Favorites search state
+        List<Song> _favSearchResults = [];
+        bool _favIsSearching = false;
+        Timer? _favSearchDebounce;
 
   @override
   void initState() {
@@ -220,8 +226,28 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       onNext: _skipToNext,
       onPrevious: _skipToPrevious,
     );
-    // Load persisted settings
+    // Load persisted settings and favorites
     _loadSettings();
+    _loadFavoritesAsync();
+  }
+
+  /// Load favorites from persistent storage (async, non-blocking).
+  Future<void> _loadFavoritesAsync() async {
+    final favIds = await AppSettings.loadFavorites();
+    if (!mounted) return;
+    setState(() {
+      _favorites.clear();
+      for (final idStr in favIds) {
+        final id = int.tryParse(idStr);
+        if (id != null) {
+          final match = widget.allSongs.firstWhere(
+            (s) => s.id == id,
+            orElse: () => Song(id: -1, title: '', uri: '', duration: 0),
+          );
+          if (match.uri.isNotEmpty) _favorites.add(match);
+        }
+      }
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -599,14 +625,25 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             // Top nav bar
             _buildTopNav(),
 
-            // Content area (scrollable, fills remaining space above player)
+            // Content area with overlays on top of all tabs
             Expanded(
-              child: IndexedStack(
-                index: widget.tabIndex,
+              child: Stack(
                 children: [
-                  _buildHomeTab(),
-                  _buildLibraryTab(),
-                  if (widget.isDesktop) const _SettingsContent(),
+                  IndexedStack(
+                    index: widget.tabIndex,
+                    children: [
+                      _buildHomeTab(),
+                      _buildLibraryTab(),
+                      _buildFavoritesTab(),
+                      if (widget.isDesktop) const _SettingsContent(),
+                    ],
+                  ),
+
+                  // Pin mode overlay — appears on all tabs when triggered
+                  if (_pinMode) _buildPinModeOverlay(getGridSongs()),
+
+                  // Mix menu overlay — scrollable list of saved mixes
+                  if (_mixMenuOpen) _buildMixMenuOverlay(),
                 ],
               ),
             ),
@@ -635,8 +672,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     if (event is! KeyDownEvent) return;
      final key = event.logicalKey;
 
-     // Disable hotkeys when actively searching in library tab so typing works normally.
-     if (widget.tabIndex == 1 && _searchController.text.trim().isNotEmpty) return;
+     // Disable hotkeys when actively searching in library or favorites tabs so typing works normally.
+     if ((widget.tabIndex == 1 || widget.tabIndex == 2) && _searchController.text.trim().isNotEmpty) return;
 
      // Backtick (`) → shuffle grid
       if (key == LogicalKeyboardKey.backquote) {
@@ -787,10 +824,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           const SizedBox(width: 8),
           // Tab buttons (icons only)
           _tabIcon(Icons.queue_music, 1),
+          const SizedBox(width: 4),
+          _tabIcon(Icons.favorite, 2),
           // Settings tab (desktop only)
           if (widget.isDesktop) ...[
             const SizedBox(width: 4),
-            _tabIcon(Icons.tune, 2),
+            _tabIcon(Icons.tune, 3),
           ],
         ],
       ),
@@ -991,11 +1030,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           ],
         ),
 
-        // Pin mode overlay — appears when user long-presses or right-clicks "the grid" button
-         if (_pinMode) _buildPinModeOverlay(gridSongs),
-
-         // Mix menu overlay — scrollable list of saved mixes
-         if (_mixMenuOpen) _buildMixMenuOverlay(),
       ],
     );
   }
@@ -1128,6 +1162,41 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       },
                     ),
                     const SizedBox(height: 12),
+                    // Pin to Favorites button (only when NOT in favorites tab)
+                    if (widget.tabIndex != 2)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton.icon(
+                            onPressed: () async {
+                              final song = _pinSourceSong ?? _currentSong;
+                              if (song != null) await _addToFavorites(song);
+                              setState(() => _pinMode = false);
+                              _pinSourceSong = null;
+                            },
+                            icon: const Icon(Icons.favorite_border, size: 14, color: Colors.white54),
+                            label: const Text('Pin to Favorites',
+                                style: TextStyle(fontSize: 12, color: Colors.white54)),
+                          ),
+                        ],
+                      ),
+                    // Remove from Favorites button (only when in favorites tab)
+                    if (widget.tabIndex == 2 && _pinSourceSong != null)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton.icon(
+                            onPressed: () async {
+                              await _removeFromFavorites(_pinSourceSong!.id);
+                              setState(() => _pinMode = false);
+                              _pinSourceSong = null;
+                            },
+                            icon: const Icon(Icons.favorite_border, size: 14, color: Colors.white54),
+                            label: const Text('Remove from Favorites',
+                                style: TextStyle(fontSize: 12, color: Colors.white54)),
+                          ),
+                        ],
+                      ),
                     TextButton(
                       onPressed: () => setState(() => _pinMode = false),
                       child: const Text('Cancel',
@@ -1362,36 +1431,68 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     return '';
   }
 
+  /// Check if a song is in favorites.
+  bool _isFavorite(int songId) => _favorites.any((s) => s.id == songId);
+
+  /// Add song to favorites and persist.
+  Future<void> _addToFavorites(Song song) async {
+    if (_isFavorite(song.id)) return;
+    setState(() => _favorites.add(song));
+    await AppSettings.saveFavorites(_favorites.map((s) => s.id.toString()).toList());
+  }
+
+  /// Remove song from favorites and persist.
+  Future<void> _removeFromFavorites(int songId) async {
+    setState(() => _favorites.removeWhere((s) => s.id == songId));
+    await AppSettings.saveFavorites(_favorites.map((s) => s.id.toString()).toList());
+  }
+
   /// Song list item (grey square + info).
   Widget _buildSongListItem(Song song) {
-    return ListTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: Colors.grey[850],
-          borderRadius: BorderRadius.circular(4),
+    return GestureDetector(
+      onLongPress: () {
+        setState(() {
+          _pinSourceSong = song;
+          _pinMode = true;
+        });
+      },
+      onSecondaryTap: () {
+        if (_isDesktop) {
+          setState(() {
+            _pinSourceSong = song;
+            _pinMode = true;
+          });
+        }
+      },
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: Colors.grey[850],
+            borderRadius: BorderRadius.circular(4),
+          ),
+          alignment: Alignment.center,
+          child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
         ),
-        alignment: Alignment.center,
-        child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
+        title: Text(
+          song.title,
+          style: const TextStyle(color: Colors.white, fontSize: 13),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          song.artist ?? 'Unknown Artist',
+          style: const TextStyle(color: Colors.white54, fontSize: 11),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: _isDesktop ? null : Text(
+          song.formattedDuration,
+          style: const TextStyle(fontSize: 11, color: Colors.white38),
+        ),
+        onTap: () => playSong(song),
       ),
-      title: Text(
-        song.title,
-        style: const TextStyle(color: Colors.white, fontSize: 13),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        song.artist ?? 'Unknown Artist',
-        style: const TextStyle(color: Colors.white54, fontSize: 11),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: _isDesktop ? null : Text(
-        song.formattedDuration,
-        style: const TextStyle(fontSize: 11, color: Colors.white38),
-      ),
-      onTap: () => playSong(song),
     );
   }
 
@@ -1414,6 +1515,29 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         setState(() {
           _searchResults = results;
           _isSearching = false;
+        });
+      }
+    });
+  }
+
+  /// Search within favorites list with debounce.
+  Future<void> _doFavSearch(String q) async {
+    if (q.trim().isEmpty) {
+      setState(() => _favSearchResults = []);
+      _favSearchDebounce?.cancel();
+      return;
+    }
+    _favSearchDebounce?.cancel();
+    _favSearchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      setState(() => _favIsSearching = true);
+      final lib = MusicLibrary();
+      await lib.init();
+      final results = await lib.search(q);
+      final favIds = _favorites.map((s) => s.id).toSet();
+      if (mounted) {
+        setState(() {
+          _favSearchResults = results.where((r) => favIds.contains(r.id)).toList();
+          _favIsSearching = false;
         });
       }
     });
@@ -1497,34 +1621,50 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
                       final song = _searchResults[index];
-                      return ListTile(
-                        leading: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[850],
-                            borderRadius: BorderRadius.circular(4),
+                      return GestureDetector(
+                        onLongPress: () {
+                          setState(() {
+                            _pinSourceSong = song;
+                            _pinMode = true;
+                          });
+                        },
+                        onSecondaryTap: () {
+                          if (_isDesktop) {
+                            setState(() {
+                              _pinSourceSong = song;
+                              _pinMode = true;
+                            });
+                          }
+                        },
+                        child: ListTile(
+                          leading: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[850],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
                           ),
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
+                          title: Text(
+                            song.title,
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            song.artist ?? 'Unknown Artist',
+                            style: const TextStyle(color: Colors.white54, fontSize: 11),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: _isDesktop ? null : Text(
+                            song.formattedDuration,
+                            style: const TextStyle(fontSize: 11, color: Colors.white38),
+                          ),
+                          onTap: () => playSong(song, queue: _searchResults),
                         ),
-                        title: Text(
-                          song.title,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          song.artist ?? 'Unknown Artist',
-                          style: const TextStyle(color: Colors.white54, fontSize: 11),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: _isDesktop ? null : Text(
-                          song.formattedDuration,
-                          style: const TextStyle(fontSize: 11, color: Colors.white38),
-                        ),
-                        onTap: () => playSong(song, queue: _searchResults),
                       );
                     },
                     childCount: _searchResults.length,
@@ -1613,6 +1753,144 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           );
         },
       ),
+    );
+  }
+
+  /// Favorites tab - mirrors library layout but shows only pinned songs.
+  Widget _buildFavoritesTab() {
+    final hasSearchQuery = _searchController.text.trim().isNotEmpty;
+
+    return Stack(
+      children: [
+        CustomScrollView(
+          slivers: [
+            // Sticky search field at top of favorites tab
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _SearchBarDelegate(_searchController, _doFavSearch),
+            ),
+
+            if (hasSearchQuery) ...[
+              if (_favIsSearching)
+                const SliverFillRemaining(
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_favSearchResults.isEmpty)
+                const SliverFillRemaining(
+                  child: Center(
+                    child: Text('no results found',
+                      style: TextStyle(color: Colors.white54)),
+                  ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final song = _favSearchResults[index];
+                      return GestureDetector(
+                        onLongPress: () {
+                          setState(() {
+                            _pinSourceSong = song;
+                            _pinMode = true;
+                          });
+                        },
+                        onSecondaryTap: () {
+                          if (_isDesktop) {
+                            setState(() {
+                              _pinSourceSong = song;
+                              _pinMode = true;
+                            });
+                          }
+                        },
+                        onTap: () => playSong(song, queue: _favSearchResults),
+                        child: ListTile(
+                          leading: Container(
+                            width: 40, height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[850],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.favorite, size: 18, color: Colors.white24),
+                          ),
+                          title: Text(song.title,
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(song.artist ?? 'Unknown Artist',
+                            style: const TextStyle(color: Colors.white54, fontSize: 11),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                          trailing: _isDesktop ? null : Text(
+                            song.formattedDuration,
+                            style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                        ),
+                      );
+                    },
+                    childCount: _favSearchResults.length,
+                  ),
+                ),
+            ] else ...[
+              // Full favorites list
+              if (_favorites.isEmpty)
+                const SliverFillRemaining(
+                  child: Center(
+                    child: Text('no favorites yet',
+                      style: TextStyle(color: Colors.white54)),
+                  ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final song = _favorites[index];
+                      return GestureDetector(
+                        onLongPress: () {
+                          setState(() {
+                            _pinSourceSong = song;
+                            _pinMode = true;
+                          });
+                        },
+                        onSecondaryTap: () {
+                          if (_isDesktop) {
+                            setState(() {
+                              _pinSourceSong = song;
+                              _pinMode = true;
+                            });
+                          }
+                        },
+                        onTap: () => playSong(song, queue: _favorites),
+                        child: ListTile(
+                          leading: Container(
+                            width: 40, height: 40,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[850],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.favorite, size: 18, color: Colors.white24),
+                          ),
+                          title: Text(song.title,
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(song.artist ?? 'Unknown Artist',
+                            style: const TextStyle(color: Colors.white54, fontSize: 11),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                          trailing: _isDesktop ? null : Text(
+                            song.formattedDuration,
+                            style: const TextStyle(fontSize: 11, color: Colors.white38)),
+                        ),
+                      );
+                    },
+                    childCount: _favorites.length,
+                  ),
+                ),
+            ],
+
+            // Bottom padding for player
+            if (!hasSearchQuery)
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
+          ],
+        ),
+      ],
     );
   }
 
