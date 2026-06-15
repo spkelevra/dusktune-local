@@ -9,6 +9,7 @@ class AppSettings {
   static const String _kPlayCounts = 'play_counts_v1'; // bump suffix on schema change
   static const String _kMusicFolders = 'music_folders_v1';
   static const String _kPinnedGrid = 'pinned_grid_v1';
+  static const String _kMixes = 'mixes_v1';
 
   /// Load saved app name, or return default.
   static Future<String> loadAppName() async {
@@ -73,5 +74,25 @@ class AppSettings {
     final prefs = await SharedPreferences.getInstance();
     final raw = jsonEncode(grid.map((k, v) => MapEntry(k.toString(), v)));
     await prefs.setString(_kPinnedGrid, raw);
+  }
+
+  /// Load mixes: list of mixes, each with id, name, and songIds.
+  static Future<List<Map<String, dynamic>>> loadMixes() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kMixes);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => e as Map<String, dynamic>).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Save mixes persistently.
+  static Future<void> saveMixes(List<Map<String, dynamic>> mixes) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = jsonEncode(mixes);
+    await prefs.setString(_kMixes, raw);
   }
 }
