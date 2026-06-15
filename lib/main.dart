@@ -47,7 +47,7 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   bool _isLoading = true;
   List<Song> _songs = [];
-  int _tabIndex = 0; // 0=home, 1=search, 2=library, 3=settings (desktop)
+  int _tabIndex = 0; // 0=home, 1=library+search, 2=settings (desktop)
   bool _needsFolderSetup = false; // Desktop: no music folders configured yet
 
   @override
@@ -197,6 +197,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         // Mix menu overlay
         bool _mixMenuOpen = false;
 
+        // Search state for library tab
+        final TextEditingController _searchController = TextEditingController();
+        List<Song> _searchResults = [];
+        bool _isSearching = false;
+        Timer? _searchDebounce;
+
   @override
   void initState() {
     super.initState();
@@ -253,6 +259,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     // Clear callbacks on dispose to avoid stale references
     AudioPlayerService.setOnTrackComplete(null);
     AudioPlayerService.setNotificationCallbacks(onNext: null, onPrevious: null);
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -597,7 +605,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 index: widget.tabIndex,
                 children: [
                   _buildHomeTab(),
-                  _buildSearchTab(),
                   _buildLibraryTab(),
                   if (widget.isDesktop) const _SettingsContent(),
                 ],
@@ -628,8 +635,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     if (event is! KeyDownEvent) return;
      final key = event.logicalKey;
 
-     // Disable all hotkeys on Search tab so typing in the search field works normally.
-     if (widget.tabIndex == 1) return;
+     // Disable hotkeys when actively searching in library tab so typing works normally.
+     if (widget.tabIndex == 1 && _searchController.text.trim().isNotEmpty) return;
 
      // Backtick (`) → shuffle grid
       if (key == LogicalKeyboardKey.backquote) {
@@ -779,13 +786,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           ),
           const SizedBox(width: 8),
           // Tab buttons (icons only)
-          _tabIcon(Icons.search, 1),
-          const SizedBox(width: 4),
-          _tabIcon(Icons.queue_music, 2),
+          _tabIcon(Icons.queue_music, 1),
           // Settings tab (desktop only)
           if (widget.isDesktop) ...[
             const SizedBox(width: 4),
-            _tabIcon(Icons.tune, 3),
+            _tabIcon(Icons.tune, 2),
           ],
         ],
       ),
@@ -1390,9 +1395,28 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     );
   }
 
-  /// Search tab content.
-  Widget _buildSearchTab() {
-    return const _SearchContent();
+
+
+  /// Perform search with debounce.
+  Future<void> _doSearch(String q) async {
+    if (q.trim().isEmpty) {
+      setState(() => _searchResults = []);
+      _searchDebounce?.cancel();
+      return;
+    }
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      setState(() => _isSearching = true);
+      final lib = MusicLibrary();
+      await lib.init();
+      final results = await lib.search(q);
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _isSearching = false;
+        });
+      }
+    });
   }
 
   /// Library tab content.
@@ -1443,11 +1467,72 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   Widget _buildLibraryTab() {
     _buildGroupedSongs();
 
+    final hasSearchQuery = _searchController.text.trim().isNotEmpty;
+
     return Stack(
       children: [
         CustomScrollView(
           slivers: [
-            ..._sortedSectionKeys.map((key) {
+            // Sticky search field at top of library tab
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _SearchBarDelegate(_searchController, _doSearch),
+            ),
+
+            // Show search results or full library based on query
+            if (hasSearchQuery) ...[
+              if (_isSearching)
+                const SliverFillRemaining(
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_searchResults.isEmpty)
+                const SliverFillRemaining(
+                  child: Center(
+                    child: Text('no results found',
+                      style: TextStyle(color: Colors.white54)),
+                  ),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final song = _searchResults[index];
+                      return ListTile(
+                        leading: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[850],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
+                        ),
+                        title: Text(
+                          song.title,
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          song.artist ?? 'Unknown Artist',
+                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: _isDesktop ? null : Text(
+                          song.formattedDuration,
+                          style: const TextStyle(fontSize: 11, color: Colors.white38),
+                        ),
+                        onTap: () => playSong(song, queue: _searchResults),
+                      );
+                    },
+                    childCount: _searchResults.length,
+                  ),
+                ),
+            ] else ...[
+              // Full library with alphabet sections
+              ..._sortedSectionKeys.map((key) {
               final songs = _groupedSongs[key]!;
               return SliverMainAxisGroup(
                 key: _sectionKeys[key],
@@ -1470,11 +1555,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 ],
               );
             }),
-            const SliverToBoxAdapter(child: SizedBox(height: 80)),
+            ],
+            // Bottom padding for player
+            if (!hasSearchQuery)
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
           ],
         ),
 
-        // Alphabet index bar on the right edge
+        // Alphabet index bar on the right edge (only show when not searching)
+        if (!hasSearchQuery)
         Positioned(
           top: 0,
           bottom: 80, // Leave room for player
@@ -1829,6 +1918,57 @@ class _SearchContentState extends State<_SearchContent> {
         const SliverToBoxAdapter(child: SizedBox(height: 80)),
       ],
     );
+  }
+}
+
+/// Sticky search bar delegate for library tab.
+class _SearchBarDelegate extends SliverPersistentHeaderDelegate {
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  const _SearchBarDelegate(this.controller, this.onChanged);
+
+  @override
+  double get minExtent => 64;
+  @override
+  double get maxExtent => 64;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Colors.grey[900],
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: TextField(
+        controller: controller,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: 'search songs or artists...',
+          hintStyle: const TextStyle(color: Colors.white38),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey[800]!),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey[800]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Colors.white38),
+          ),
+          prefixIcon: const Icon(Icons.search, color: Colors.white54),
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        onChanged: onChanged,
+      ),
+    ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _SearchBarDelegate old) {
+    return controller != old.controller;
   }
 }
 
