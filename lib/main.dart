@@ -329,6 +329,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
     setState(() {
       _shuffledTopNine = shuffled.take(9).toList();
+      _showingMix = false;
+      _mixGridSongs = null;
     });
   }
 
@@ -336,6 +338,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   void resetTopPicks() {
     setState(() {
       _shuffledTopNine = null;
+      _showingMix = false;
+      _mixGridSongs = null;
     });
   }
 
@@ -874,8 +878,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     Row(
                        mainAxisSize: MainAxisSize.min,
                        children: [
-                         // "Mix" button — tap opens mix menu, long-press saves current grid as a mix
+                         // "Mix" button — tap opens mix menu, long-press/right-click saves current grid as a mix
                          GestureDetector(
+                           onSecondaryTap: () {
+                             closeMixMenu();
+                             promptSaveMix(context);
+                           },
                            onLongPress: () {
                              closeMixMenu();
                              promptSaveMix(context);
@@ -884,7 +892,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                              onPressed: () {
                                setState(() => _mixMenuOpen = !_mixMenuOpen);
                              },
-                             icon: const Icon(Icons.auto_awesome, size: 16, color: Colors.white54),
+                             icon: const Icon(Icons.audiotrack, size: 16, color: Colors.white54),
                              label: const Text(
                                'mix',
                                style: TextStyle(fontSize: 12, color: Colors.white54),
@@ -1206,7 +1214,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     alignment: Alignment.center,
-                                    child: const Icon(Icons.auto_awesome, size: 18, color: Colors.white24),
+                                    child: const Icon(Icons.audiotrack, size: 18, color: Colors.white24),
                                   ),
                                   title: Text(
                                     mix['name'] as String? ?? 'untitled',
