@@ -95,4 +95,16 @@ class AppSettings {
     final raw = jsonEncode(mixes);
     await prefs.setString(_kMixes, raw);
   }
+
+  /// Load favorites list (list of song IDs as strings).
+  static Future<List<String>> loadFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList('favorites') ?? [];
+  }
+
+  /// Save favorites list.
+  static Future<void> saveFavorites(List<String> ids) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('favorites', ids);
+  }
 }
