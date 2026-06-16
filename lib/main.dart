@@ -1409,53 +1409,53 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   /// Shared ListTile for song list items — used by both main lists and favorites.
-  Widget _buildSongTile(Song song, {VoidCallback? onTap}) {
-    return GestureDetector(
-      onLongPress: () {
-        setState(() {
-          _pinSourceSong = song;
-          _pinMode = true;
-        });
-      },
-      onSecondaryTap: () {
-        if (_isDesktop) {
-          setState(() {
-            _pinSourceSong = song;
-            _pinMode = true;
-          });
-        }
-      },
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: Colors.grey[850],
-            borderRadius: BorderRadius.circular(4),
-          ),
-          alignment: Alignment.center,
-          child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
-        ),
-        title: Text(
-          song.title,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          song.artist ?? 'Unknown Artist',
-          style: const TextStyle(color: Colors.white54, fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Text(
-           _playCounts[song.id]?.toString() ?? '0',
-           style: const TextStyle(fontSize: 10, color: Colors.white38),
+   Widget _buildSongTile(Song song, {VoidCallback? onTap, Widget? trailingWidget}) {
+     return GestureDetector(
+       onLongPress: () {
+         setState(() {
+           _pinSourceSong = song;
+           _pinMode = true;
+         });
+       },
+       onSecondaryTap: () {
+         if (_isDesktop) {
+           setState(() {
+             _pinSourceSong = song;
+             _pinMode = true;
+           });
+         }
+       },
+       child: ListTile(
+         leading: Container(
+           width: 40,
+           height: 40,
+           decoration: BoxDecoration(
+             color: Colors.grey[850],
+             borderRadius: BorderRadius.circular(4),
+           ),
+           alignment: Alignment.center,
+           child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
          ),
-        onTap: onTap,
-      ),
-    );
-  }
+         title: Text(
+           song.title,
+           style: const TextStyle(color: Colors.white, fontSize: 13),
+           maxLines: 1,
+           overflow: TextOverflow.ellipsis,
+         ),
+         subtitle: Text(
+           song.artist ?? 'Unknown Artist',
+           style: const TextStyle(color: Colors.white54, fontSize: 11),
+           maxLines: 1,
+           overflow: TextOverflow.ellipsis,
+         ),
+         trailing: trailingWidget ?? Text(
+            _playCounts[song.id]?.toString() ?? '0',
+            style: const TextStyle(fontSize: 10, color: Colors.white38),
+          ),
+         onTap: onTap,
+       ),
+     );
+   }
 
   Widget _buildSongListItem(Song song) {
     return _buildSongTile(song, onTap: () => playSong(song));
@@ -1796,49 +1796,57 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         }
                       },
                       onTap: () => playSong(song, queue: _favSearchResults),
-                      child: ListTile(
-                        leading: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[850],
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          alignment: Alignment.center,
-                          child: const Icon(
-                            Icons.favorite,
-                            size: 18,
-                            color: Colors.white24,
-                          ),
-                        ),
-                        title: Text(
-                          song.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          song.artist ?? 'Unknown Artist',
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 11,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: _isDesktop
-                            ? null
-                            : Text(
-                                song.formattedDuration,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.white38,
-                                ),
-                              ),
-                      ),
+                       child: ListTile(
+                         leading: Container(
+                           width: 40,
+                           height: 40,
+                           decoration: BoxDecoration(
+                             color: Colors.grey[850],
+                             borderRadius: BorderRadius.circular(4),
+                           ),
+                           alignment: Alignment.center,
+                           child: const Icon(
+                             Icons.favorite,
+                             size: 18,
+                             color: Colors.white24,
+                           ),
+                         ),
+                         title: Text(
+                           song.title,
+                           style: const TextStyle(
+                             color: Colors.white,
+                             fontSize: 13,
+                           ),
+                           maxLines: 1,
+                           overflow: TextOverflow.ellipsis,
+                         ),
+                         subtitle: Text(
+                           song.artist ?? 'Unknown Artist',
+                           style: const TextStyle(
+                             color: Colors.white54,
+                             fontSize: 11,
+                           ),
+                           maxLines: 1,
+                           overflow: TextOverflow.ellipsis,
+                         ),
+                         trailing: Row(
+                           mainAxisSize: MainAxisSize.min,
+                           children: [
+                             Text(
+                               _playCounts[song.id]?.toString() ?? '0',
+                               style: const TextStyle(fontSize: 10, color: Colors.white38),
+                             ),
+                             const SizedBox(width: 8),
+                             IconButton(
+                               icon: const Icon(Icons.delete_outline, size: 16, color: Colors.white38),
+                               onPressed: () => _removeFromFavorites(song.id),
+                               tooltip: 'Remove from favorites',
+                               padding: EdgeInsets.zero,
+                               constraints: const BoxConstraints(),
+                             ),
+                           ],
+                         ),
+                       ),
                     );
                   }, childCount: _favSearchResults.length),
                 ),
@@ -1855,14 +1863,31 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 )
               else
                 SliverList(
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    final song = _favorites[index];
-                    return _buildSongTile(
-                      song,
-                      onTap: () => playSong(song, queue: _favorites),
-                    );
-                  }, childCount: _favorites.length),
-                ),
+                   delegate: SliverChildBuilderDelegate((context, index) {
+                     final song = _favorites[index];
+                     return _buildSongTile(
+                       song,
+                       onTap: () => playSong(song, queue: _favorites),
+                       trailingWidget: Row(
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           Text(
+                             _playCounts[song.id]?.toString() ?? '0',
+                             style: const TextStyle(fontSize: 10, color: Colors.white38),
+                           ),
+                           const SizedBox(width: 8),
+                           IconButton(
+                             icon: const Icon(Icons.delete_outline, size: 16, color: Colors.white38),
+                             onPressed: () => _removeFromFavorites(song.id),
+                             tooltip: 'Remove from favorites',
+                             padding: EdgeInsets.zero,
+                             constraints: const BoxConstraints(),
+                           ),
+                         ],
+                       ),
+                     );
+                   }, childCount: _favorites.length),
+                 ),
             ],
 
             // Bottom padding for player
