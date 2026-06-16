@@ -39,22 +39,22 @@ class ArtworkExtractor {
   }
 
   /// Extract and cache album artwork for a list of songs.
-  /// Returns the updated song list with artworkBytes populated where available.
-  /// 
-  /// Only runs extraction if [showAlbumArt] is enabled in settings.
-  /// Skips songs that already have cached thumbnails.
-  static Future<List<Song>> extractForSongs(List<Song> songs) async {
-    final showArt = await AppSettings.loadShowAlbumArt();
-    if (!showArt || songs.isEmpty) return songs;
+    /// Returns the updated song list with artworkBytes populated where available.
+    /// 
+    /// Only runs extraction if [showAlbumArt] is enabled in settings.
+    /// Skips songs that already have cached thumbnails.
+    static Future<List<Song>> extractForSongs(List<Song> songs) async {
+      final showArt = await AppSettings.loadShowAlbumArt();
+      if (!showArt || songs.isEmpty) return songs;
 
-    debugPrint('ArtworkExtractor: extracting for ${songs.length} songs');
+      debugPrint('ArtworkExtractor: extracting for ${songs.length} songs');
 
-    if (Platform.isAndroid) {
-      return _extractAndroid(songs);
-    } else {
-      return _extractDesktop(songs);
+      if (Platform.isAndroid) {
+        return _extractAndroid(songs);
+      } else {
+        return _extractDesktop(songs);
+      }
     }
-  }
 
   // -----------------------------------------------------------------------
   // Android path — use on_audio_query MediaStore API
@@ -107,44 +107,84 @@ class ArtworkExtractor {
   // -----------------------------------------------------------------------
 
   static Future<List<Song>> _extractDesktop(List<Song> songs) async {
-    final updatedSongs = <Song>[];
+      final updatedSongs = <Song>[];
 
-    for (final song in songs) {
-      // Check cache first
-      if (await AppSettings.hasArtwork(song.id)) {
-        final cached = await AppSettings.loadArtwork(song.id);
-        if (cached != null && cached.isNotEmpty) {
-          updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(cached)));
-          continue;
+      for (int i = 0; i < songs.length; i++) {
+        final song = songs[i];
+
+        // Yield to event loop every 10 songs so UI stays responsive
+        if (i % 10 == 0 && i > 0) {
+          await Future<void>.delayed(Duration.zero);
         }
-      }
 
-      // Only MP3 files have ID3 tags we can parse with the id3 package
-      final ext = song.uri.split('.').last.toLowerCase();
-      if (ext != 'mp3') {
-        updatedSongs.add(song);
-        continue;
-      }
+        // Check cache first
+        if (await AppSettings.hasArtwork(song.id)) {
+          final cached = await AppSettings.loadArtwork(song.id);
+          if (cached != null && cached.isNotEmpty) {
+            updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(cached)));
+            continue;
+          }
+        }
 
-      try {
-        final file = File(song.uri);
-        if (!await file.exists()) {
+        // Only MP3 files have ID3 tags we can parse with the id3 package
+        final ext = song.uri.split('.').last.toLowerCase();
+        if (ext != 'mp3') {
           updatedSongs.add(song);
           continue;
         }
 
-        // Read just the header portion of the file (ID3v2 tags are at the start)
-        // We read up to 1MB which is more than enough for ID3 headers + embedded art
+        try {
+          final file = File(song.uri);
+          if (!await file.exists()) {
+            updatedSongs.add(song);
+            continue;
+          }
+
+          // Parse ID3 tags with a per-song timeout (5s max) to prevent hangs
+          final artworkBytes = await _extractArtworkFromMP3(file).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              debugPrint('ArtworkExtractor: timeout for ${song.uri}');
+              return null;
+            },
+          );
+
+          if (artworkBytes != null) {
+            await AppSettings.saveArtwork(song.id, artworkBytes);
+            updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(artworkBytes)));
+          } else {
+            updatedSongs.add(song);
+          }
+        } catch (e) {
+          debugPrint('ArtworkExtractor: failed for song ${song.id} (${song.uri}): $e');
+          updatedSongs.add(song);
+        }
+      }
+
+      debugPrint('ArtworkExtractor (Desktop): populated artwork for '
+          '${updatedSongs.where((s) => s.artworkBytes != null).length}/${updatedSongs.length} songs');
+      return updatedSongs;
+    }
+
+    /// Extract artwork from an MP3 file asynchronously using compute (isolate).
+    static Future<List<int>?> _extractArtworkFromMP3(File file) async {
+      try {
         final bytes = await _readFileWithLimit(file, 1 * 1024 * 1024);
 
-        // Parse with id3 package
+        // Run ID3 parsing in an isolate to avoid blocking the main thread
+        return compute(_parseId3Artwork, bytes);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    /// Isolate callback — parse ID3 tags and extract APIC artwork.
+    static List<int>? _parseId3Artwork(List<int> bytes) {
+      try {
         final mp3Instance = id3_lib.MP3Instance(bytes);
         final parsed = mp3Instance.parseTagsSync();
 
-        if (!parsed) {
-          updatedSongs.add(song);
-          continue;
-        }
+        if (!parsed) return null;
 
         final metaTags = mp3Instance.getMetaTags();
         final apicData = metaTags?['APIC'];
@@ -152,28 +192,13 @@ class ArtworkExtractor {
         if (apicData is Map<String, dynamic>) {
           final base64Str = apicData['base64'] as String?;
           if (base64Str != null && base64Str.isNotEmpty) {
-            // Decode base64 image data
-            final imageBytes = base64Decode(base64Str);
-
-            // Cache to disk
-            await AppSettings.saveArtwork(song.id, imageBytes);
-            updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(imageBytes)));
-          } else {
-            updatedSongs.add(song);
+            return base64Decode(base64Str);
           }
-        } else {
-          updatedSongs.add(song);
         }
-      } catch (e) {
-        debugPrint('ArtworkExtractor: failed for song ${song.id} (${song.uri}): $e');
-        updatedSongs.add(song);
-      }
-    }
+      } catch (_) {}
 
-    debugPrint('ArtworkExtractor (Desktop): populated artwork for '
-        '${updatedSongs.where((s) => s.artworkBytes != null).length}/${updatedSongs.length} songs');
-    return updatedSongs;
-  }
+      return null;
+    }
 
   /// Read file bytes with a size limit to avoid loading entire large files.
   static Future<List<int>> _readFileWithLimit(File file, int maxBytes) async {
@@ -225,42 +250,35 @@ class ArtworkExtractor {
   }
 
   static Future<Song> _extractSingleDesktop(Song song) async {
-    // Check cache first
-    if (await AppSettings.hasArtwork(song.id)) {
-      final cached = await AppSettings.loadArtwork(song.id);
-      if (cached != null && cached.isNotEmpty) {
-        return song.copyWith(artworkBytes: Uint8List.fromList(cached));
-      }
-    }
-
-    final ext = song.uri.split('.').last.toLowerCase();
-    if (ext != 'mp3') return song;
-
-    try {
-      final file = File(song.uri);
-      if (!await file.exists()) return song;
-
-      final bytes = await _readFileWithLimit(file, 1 * 1024 * 1024);
-      final mp3Instance = id3_lib.MP3Instance(bytes);
-      final parsed = mp3Instance.parseTagsSync();
-
-      if (!parsed) return song;
-
-      final metaTags = mp3Instance.getMetaTags();
-      final apicData = metaTags?['APIC'];
-
-      if (apicData is Map<String, dynamic>) {
-        final base64Str = apicData['base64'] as String?;
-        if (base64Str != null && base64Str.isNotEmpty) {
-          final imageBytes = base64Decode(base64Str);
-          await AppSettings.saveArtwork(song.id, imageBytes);
-          return song.copyWith(artworkBytes: Uint8List.fromList(imageBytes));
+      // Check cache first
+      if (await AppSettings.hasArtwork(song.id)) {
+        final cached = await AppSettings.loadArtwork(song.id);
+        if (cached != null && cached.isNotEmpty) {
+          return song.copyWith(artworkBytes: Uint8List.fromList(cached));
         }
       }
-    } catch (e) {
-      debugPrint('ArtworkExtractor: single desktop extract failed for ${song.id}: $e');
-    }
 
-    return song;
-  }
-}
+      final ext = song.uri.split('.').last.toLowerCase();
+      if (ext != 'mp3') return song;
+
+      try {
+        final file = File(song.uri);
+        if (!await file.exists()) return song;
+
+        // Use async isolate-based extraction with timeout
+        final artworkBytes = await _extractArtworkFromMP3(file).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => null,
+        );
+
+        if (artworkBytes != null) {
+          await AppSettings.saveArtwork(song.id, artworkBytes);
+          return song.copyWith(artworkBytes: Uint8List.fromList(artworkBytes));
+        }
+      } catch (e) {
+        debugPrint('ArtworkExtractor: single desktop extract failed for ${song.id}: $e');
+      }
+
+      return song;
+      }
+      }
