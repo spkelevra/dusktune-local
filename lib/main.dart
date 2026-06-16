@@ -48,7 +48,7 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   bool _isLoading = true;
   List<Song> _songs = [];
-  int _tabIndex = 0; // 0=home, 1=library, 2=mixes, 3=favorites, 4=settings (desktop)
+  int _tabIndex = 0; // 0=home, 1=library, 2=mixes, 3=favorites, 4=settings
   bool _needsFolderSetup = false; // Desktop: no music folders configured yet
 
   @override
@@ -660,7 +660,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                        _buildLibraryTab(),
                        _buildMixesTab(),
                        _buildFavoritesTab(),
-                       if (widget.isDesktop) const _SettingsContent(),
+                       const _SettingsContent(),
                      ],
                    ),
 
@@ -857,11 +857,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
            _tabIcon(Icons.audiotrack, 2),
            const SizedBox(width: 4),
            _tabIcon(Icons.favorite, 3),
-           // Settings tab (desktop only)
-           if (widget.isDesktop) ...[
-             const SizedBox(width: 4),
-             _tabIcon(Icons.tune, 4),
-           ],
+           // Settings tab
+           const SizedBox(width: 4),
+           _tabIcon(Icons.tune, 4),
         ],
       ),
     );
@@ -2596,7 +2594,7 @@ class _DesktopFolderSetupState extends State<_DesktopFolderSetup> {
   }
 }
 
-/// Settings content — music folder management (desktop only).
+/// Settings content — platform-specific settings.
 class _SettingsContent extends StatefulWidget {
   const _SettingsContent();
 
@@ -2607,13 +2605,17 @@ class _SettingsContent extends StatefulWidget {
 class _SettingsContentState extends State<_SettingsContent> {
   List<String> _folders = [];
   bool _loading = true;
-  bool _scanning = false; // true while rescanning after add/remove
+  bool _scanning = false;
   final TextEditingController _addPathController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _loadFolders();
+    if (_isDesktop) {
+      _loadFolders();
+    } else {
+      setState(() => _loading = false);
+    }
   }
 
   @override
@@ -2636,10 +2638,8 @@ class _SettingsContentState extends State<_SettingsContent> {
     final trimmed = (path ?? _addPathController.text).trim();
     if (trimmed.isEmpty) return;
 
-    // Normalize SMB URLs to local mount paths
     final normalized = desktop_scanner.normalizePath(trimmed);
 
-    // Check accessibility with timeout before adding
     if (!await desktop_scanner.isFolderAccessible(normalized)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2660,7 +2660,6 @@ class _SettingsContentState extends State<_SettingsContent> {
       _scanning = true;
     });
 
-    // Re-scan library
     if (!mounted) return;
     final shell = context.findAncestorStateOfType<_AppRootState>();
     final songCount = await shell?.rescanLibrary() ?? 0;
@@ -2678,7 +2677,6 @@ class _SettingsContentState extends State<_SettingsContent> {
     await AppSettings.saveMusicFolders(_folders);
     setState(() {});
 
-    // Re-scan library
     if (!mounted) return;
     final shell = context.findAncestorStateOfType<_AppRootState>();
     final songCount = await shell?.rescanLibrary() ?? 0;
@@ -2692,12 +2690,148 @@ class _SettingsContentState extends State<_SettingsContent> {
     }
   }
 
+  Future<void> _clearAllData() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear All Data', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'This will permanently delete all favorites, mixes, pinned grid songs, play counts, and app name. This cannot be undone.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear All', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await AppSettings.clearAllData();
+
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All data cleared')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDesktop = _isDesktop;
+
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // Mobile settings view
+    if (!isDesktop) {
+      return CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Settings',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[200],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Manage your app data.',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Clear all data button
+                  InkWell(
+                    onTap: _clearAllData,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.red[900]?.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red[800]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_forever, color: Colors.red[400], size: 22),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Clear All Data',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.red[300],
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Delete favorites, mixes, pins, play counts, and app name',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, color: Colors.red[400], size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Info section
+                  Text(
+                    'Persistent Storage',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[400],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your data is stored in /Documents/dusktune/ and survives app reinstalls. '
+                    'Only clearing data here or deleting the folder manually will remove it.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 80)),
+        ],
+      );
+    }
+
+    // Desktop settings view (music folders)
     return Stack(
       children: [
         CustomScrollView(
