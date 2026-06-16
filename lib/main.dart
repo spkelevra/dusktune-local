@@ -1210,58 +1210,58 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     ),
                     const SizedBox(height: 12),
                     // Pin to Favorites button (only when NOT in favorites tab)
-                    if (widget.tabIndex != 2)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TextButton.icon(
-                            onPressed: () async {
-                              final song = _pinSourceSong ?? _currentSong;
-                              if (song != null) await _addToFavorites(song);
-                              setState(() => _pinMode = false);
-                              _pinSourceSong = null;
-                            },
-                            icon: const Icon(
-                              Icons.favorite_border,
-                              size: 14,
-                              color: Colors.white54,
-                            ),
-                            label: const Text(
-                              'Pin to Favorites',
-                              style: TextStyle(
-                                fontSize: 12,
+                      if (widget.tabIndex != 3)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            TextButton.icon(
+                              onPressed: () async {
+                                final song = _pinSourceSong ?? _currentSong;
+                                if (song != null) await _addToFavorites(song);
+                                setState(() => _pinMode = false);
+                                _pinSourceSong = null;
+                              },
+                              icon: const Icon(
+                                Icons.favorite_border,
+                                size: 14,
                                 color: Colors.white54,
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    // Remove from Favorites button (only when in favorites tab)
-                    if (widget.tabIndex == 2 && _pinSourceSong != null)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TextButton.icon(
-                            onPressed: () async {
-                              await _removeFromFavorites(_pinSourceSong!.id);
-                              setState(() => _pinMode = false);
-                              _pinSourceSong = null;
-                            },
-                            icon: const Icon(
-                              Icons.favorite_border,
-                              size: 14,
-                              color: Colors.white54,
-                            ),
-                            label: const Text(
-                              'Remove from Favorites',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white54,
+                              label: const Text(
+                                'Pin to Favorites',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white54,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      // Remove from Favorites button (only when in favorites tab)
+                      if (widget.tabIndex == 3 && _pinSourceSong != null)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            TextButton.icon(
+                              onPressed: () async {
+                                await _removeFromFavorites(_pinSourceSong!.id);
+                                setState(() => _pinMode = false);
+                                _pinSourceSong = null;
+                              },
+                              icon: const Icon(
+                                Icons.favorite_border,
+                                size: 14,
+                                color: Colors.white54,
+                              ),
+                              label: const Text(
+                                'Remove from Favorites',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white54,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                     TextButton(
                       onPressed: () => setState(() => _pinMode = false),
                       child: const Text(
