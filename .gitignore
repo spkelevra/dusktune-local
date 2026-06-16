@@ -49,6 +49,7 @@ android/*.dex
 android/.flutter-plugins-dependencies
 
 # Flutter/Dart
+.dart_tool/
 **/generated/**
 !**/assets/generated/**
 .flutter-plugins
