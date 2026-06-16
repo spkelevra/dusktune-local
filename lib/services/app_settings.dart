@@ -80,6 +80,52 @@ class AppSettings {
     await PersistentStorage.saveFavorites(ids);
   }
 
+  // -- Show album art toggle --
+
+  /// Load whether album art display is enabled. Defaults to false (opt-in).
+  static Future<bool> loadShowAlbumArt() async {
+    return PersistentStorage.loadShowAlbumArt();
+  }
+
+  /// Save album art display preference.
+  static Future<void> saveShowAlbumArt(bool enabled) async {
+    await PersistentStorage.saveShowAlbumArt(enabled);
+  }
+
+  // -- Artwork cache --
+
+  /// Get cached artwork for a song, or null if not available.
+  static Future<List<int>?> loadArtwork(int songId) async {
+    return PersistentStorage.loadArtwork(songId);
+  }
+
+  /// Save artwork bytes to cache.
+  static Future<void> saveArtwork(int songId, List<int> bytes) async {
+    await PersistentStorage.saveArtwork(songId, bytes);
+  }
+
+  /// Check if artwork is cached for a song.
+  static Future<bool> hasArtwork(int songId) async {
+    return PersistentStorage.hasArtwork(songId);
+  }
+
+  /// Clear all cached artwork thumbnails.
+  static Future<void> clearArtworkCache() async {
+    await PersistentStorage.clearArtworkCache();
+  }
+
+  // -- Artwork rescan flag --
+
+  /// Set flag to trigger a full artwork rescan on next app launch.
+  static Future<void> saveRescanFlag(bool value) async {
+    await PersistentStorage.saveRescanFlag(value);
+  }
+
+  /// Check if a full artwork rescan was requested. Clears the flag after reading.
+  static Future<bool> consumeRescanFlag() async {
+    return PersistentStorage.consumeRescanFlag();
+  }
+
   // -- Clear all data --
 
   /// Delete ALL persistent data (favorites, mixes, play counts, pinned grid, app name).

@@ -15,6 +15,24 @@ import 'widgets/tile_pattern.dart';
 import 'dart:async';
 
 /// Returns true if running on a desktop platform (Windows, macOS, Linux).
+/// Returns a display artist for any song — uses the actual artist name,
+/// falls back to the parent folder name from the file path if unknown.
+String songDisplayArtist(Song song) {
+  final artist = song.artist;
+  if (artist != null &&
+      artist.isNotEmpty &&
+      artist.toLowerCase() != 'unknown artist') {
+    return artist;
+  }
+  final uri = song.uri;
+  final separator = uri.contains(r'\\') ? r'\\' : '/';
+  final parts = uri.split(separator);
+  if (parts.length >= 2) {
+    return parts[parts.length - 2];
+  }
+  return '';
+}
+
 bool get _isDesktop =>
     Platform.isWindows || Platform.isMacOS || Platform.isLinux;
 
@@ -48,7 +66,7 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   bool _isLoading = true;
   List<Song> _songs = [];
-  int _tabIndex = 0; // 0=home, 1=library, 2=mixes, 3=favorites, 4=settings
+  int _tabIndex = 0; // 0=home, 1=library, 2=mixes, 3=favorites, 4=settings (desktop)
   bool _needsFolderSetup = false; // Desktop: no music folders configured yet
 
   @override
@@ -110,6 +128,40 @@ class _AppRootState extends State<AppRoot> {
   }
 
   void setTab(int index) => setState(() => _tabIndex = index);
+
+  /// Toggle album art display setting. On mobile closes the app; on desktop shows restart prompt.
+  Future<void> toggleAlbumArt(bool enabled) async {
+    await AppSettings.saveShowAlbumArt(enabled);
+    if (enabled) {
+      // Set flag so next launch does a full artwork extraction
+      await AppSettings.saveRescanFlag(true);
+    }
+
+    if (_isDesktop) {
+      // Desktop: SystemNavigator.pop() doesn't work — show restart prompt instead
+      // The snackbar is shown by the caller; we just return here
+      return;
+    } else {
+      // Mobile: close app immediately
+      SystemNavigator.pop();
+    }
+  }
+
+  /// Rescan album artwork — sets flag. On mobile closes; on desktop shows restart prompt.
+  Future<void> rescanAlbumArt() async {
+    await AppSettings.saveRescanFlag(true);
+
+    if (_isDesktop) {
+      return; // Desktop: caller handles snackbar with restart message
+    } else {
+      SystemNavigator.pop();
+    }
+  }
+
+  /// Clear the artwork cache from disk.
+  Future<void> clearArtworkCache() async {
+    await AppSettings.clearArtworkCache();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -183,8 +235,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Debounce: prevent re-entry while playSong is in flight
   bool _isTransitioning = false;
 
-  // Pinned grid: tile index (0-8) → Song, persisted across sessions.
+// Pinned grid: tile index (0-8) → Song, persisted across sessions.
   final Map<int, Song> _pinnedGrid = {};
+
+  // Album art display toggle
+  bool _showAlbumArt = false;
 
   // Pin mode: overlay for assigning current song to a tile.
   bool _pinMode = false;
@@ -230,26 +285,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       onNext: _skipToNext,
       onPrevious: _skipToPrevious,
     );
-    // Load persisted settings (does not depend on song list)
+    // Load persisted settings and favorites
     _loadSettings();
-    // Defer favorites + pinned grid load until after first frame,
-    // so songs are guaranteed to be populated by the time we match IDs.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.allSongs.isNotEmpty) {
-        _loadFavoritesAsync();
-        _loadPinnedGrid(widget.allSongs);
-      }
-    });
-  }
-
-  @override
-  void didUpdateWidget(DuskTuneShell oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Reload when songs list changes (e.g. after library rescan).
-    if (widget.allSongs.isNotEmpty && oldWidget.allSongs.isEmpty) {
-      _loadFavoritesAsync();
-      _loadPinnedGrid(widget.allSongs);
-    }
+    _loadFavoritesAsync();
   }
 
   /// Load favorites from persistent storage (async, non-blocking).
@@ -274,14 +312,18 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   Future<void> _loadSettings() async {
      final appName = await AppSettings.loadAppName();
      final playCounts = await AppSettings.loadPlayCounts();
+     final showAlbumArt = await AppSettings.loadShowAlbumArt();
      if (mounted) {
        setState(() {
          _appName = appName;
          _playCounts.clear();
          _playCounts.addAll(playCounts);
+         _showAlbumArt = showAlbumArt;
        });
      }
-     // Load mixes
+    // Load pinned grid after settings are loaded
+    await _loadPinnedGrid(widget.allSongs);
+    // Load mixes
     final List<Map<String, dynamic>> loadedMixes =
         await AppSettings.loadMixes();
     if (mounted) {
@@ -660,8 +702,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                        _buildLibraryTab(),
                        _buildMixesTab(),
                        _buildFavoritesTab(),
-                       const _SettingsContent(),
-                     ],
+                         const _SettingsContent(),
+                       ],
                    ),
 
                   // Pin mode overlay — appears on all tabs when triggered
@@ -852,20 +894,20 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           ),
           const SizedBox(width: 8),
           // Tab buttons (icons only)
-           _tabIcon(Icons.queue_music, 1),
-           const SizedBox(width: 4),
-           _tabIcon(Icons.audiotrack, 2),
-           const SizedBox(width: 4),
-           _tabIcon(Icons.favorite, 3),
-           // Settings tab
-           const SizedBox(width: 4),
-           _tabIcon(Icons.tune, 4),
-        ],
-      ),
-    );
-  }
+             _tabIcon(Icons.queue_music, 1),
+             const SizedBox(width: 4),
+             _tabIcon(Icons.audiotrack, 2),
+             const SizedBox(width: 4),
+             _tabIcon(Icons.favorite, 3),
+             // Settings tab
+                  const SizedBox(width: 4),
+                  _tabIcon(Icons.tune, 4),
+             ],
+             ),
+             );
+             }
 
-  Widget _tabIcon(IconData icon, int index) {
+             Widget _tabIcon(IconData icon, int index) {
     final isActive = widget.tabIndex == index;
     return IconButton(
       onPressed: () => widget.onTabChanged(index),
@@ -1324,11 +1366,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 ),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: ClipRRect(
+             child: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: AspectRatio(
                   aspectRatio: 1.0,
-                  child: TitlePattern(title: song.title),
+                  child: _showAlbumArt
+                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes)
+                      : TitlePattern(title: song.title),
                 ),
               ),
             ),
@@ -1421,56 +1465,58 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     );
   }
 
-  /// Shared ListTile for song list items — used by both main lists and favorites.
-   Widget _buildSongTile(Song song, {VoidCallback? onTap, Widget? trailingWidget}) {
-     return GestureDetector(
-       onLongPress: () {
-         setState(() {
-           _pinSourceSong = song;
-           _pinMode = true;
-         });
-       },
-       onSecondaryTap: () {
-         if (_isDesktop) {
+   /// Shared ListTile for song list items — used by both main lists and favorites.
+     Widget _buildSongTile(Song song, {VoidCallback? onTap, Widget? trailingWidget}) {
+       return GestureDetector(
+         onLongPress: () {
            setState(() {
              _pinSourceSong = song;
              _pinMode = true;
            });
-         }
-       },
-       child: ListTile(
-         leading: Container(
-           width: 40,
-           height: 40,
-           decoration: BoxDecoration(
-             color: Colors.grey[850],
-             borderRadius: BorderRadius.circular(4),
+         },
+         onSecondaryTap: () {
+           if (_isDesktop) {
+             setState(() {
+               _pinSourceSong = song;
+               _pinMode = true;
+             });
+           }
+         },
+         child: ListTile(
+           leading: _showAlbumArt
+               ? AlbumArtThumbnail(title: song.title, artworkBytes: song.artworkBytes)
+               : Container(
+                   width: 40,
+                   height: 40,
+                   decoration: BoxDecoration(
+                     color: Colors.grey[850],
+                     borderRadius: BorderRadius.circular(4),
+                   ),
+                   alignment: Alignment.center,
+                   child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
+                 ),
+           title: Text(
+             song.title,
+             style: const TextStyle(color: Colors.white, fontSize: 13),
+             maxLines: 1,
+             overflow: TextOverflow.ellipsis,
            ),
-           alignment: Alignment.center,
-           child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
+           subtitle: Text(
+             songDisplayArtist(song),
+             style: const TextStyle(color: Colors.white54, fontSize: 11),
+             maxLines: 1,
+             overflow: TextOverflow.ellipsis,
+           ),
+           trailing: trailingWidget ?? Text(
+              _playCounts[song.id]?.toString() ?? '0',
+              style: const TextStyle(fontSize: 10, color: Colors.white38),
+            ),
+           onTap: onTap,
          ),
-         title: Text(
-           song.title,
-           style: const TextStyle(color: Colors.white, fontSize: 13),
-           maxLines: 1,
-           overflow: TextOverflow.ellipsis,
-         ),
-         subtitle: Text(
-           song.artist ?? 'Unknown Artist',
-           style: const TextStyle(color: Colors.white54, fontSize: 11),
-           maxLines: 1,
-           overflow: TextOverflow.ellipsis,
-         ),
-         trailing: trailingWidget ?? Text(
-            _playCounts[song.id]?.toString() ?? '0',
-            style: const TextStyle(fontSize: 10, color: Colors.white38),
-          ),
-         onTap: onTap,
-       ),
-     );
-   }
+       );
+     }
 
-  Widget _buildSongListItem(Song song) {
+    Widget _buildSongListItem(Song song) {
     return _buildSongTile(song, onTap: () => playSong(song));
   }
 
@@ -1650,7 +1696,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          song.artist ?? 'Unknown Artist',
+                          songDisplayArtist(song),
                           style: const TextStyle(
                             color: Colors.white54,
                             fontSize: 11,
@@ -1834,7 +1880,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                            overflow: TextOverflow.ellipsis,
                          ),
                          subtitle: Text(
-                           song.artist ?? 'Unknown Artist',
+                           songDisplayArtist(song),
                            style: const TextStyle(
                              color: Colors.white54,
                              fontSize: 11,
@@ -2339,7 +2385,7 @@ class _SearchContentState extends State<_SearchContent> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  song.artist ?? 'Unknown Artist',
+                  songDisplayArtist(song),
                   style: const TextStyle(color: Colors.white54, fontSize: 11),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -2594,7 +2640,7 @@ class _DesktopFolderSetupState extends State<_DesktopFolderSetup> {
   }
 }
 
-/// Settings content — platform-specific settings.
+/// Settings content — music folder management (desktop only).
 class _SettingsContent extends StatefulWidget {
   const _SettingsContent();
 
@@ -2605,7 +2651,7 @@ class _SettingsContent extends StatefulWidget {
 class _SettingsContentState extends State<_SettingsContent> {
   List<String> _folders = [];
   bool _loading = true;
-  bool _scanning = false;
+  bool _scanning = false; // true while rescanning after add/remove
   final TextEditingController _addPathController = TextEditingController();
 
   @override
@@ -2755,7 +2801,147 @@ class _SettingsContentState extends State<_SettingsContent> {
                     'Manage your app data.',
                     style: TextStyle(fontSize: 13, color: Colors.grey[500]),
                   ),
+
+                  // --- Album art toggle (mobile) ---
                   const SizedBox(height: 24),
+                  FutureBuilder<bool>(
+                    future: AppSettings.loadShowAlbumArt(),
+                    builder: (context, snapshot) {
+                      final enabled = snapshot.data ?? false;
+                      return InkWell(
+                        onTap: () async {
+                          if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    _isDesktop
+                                        ? (enabled ? 'Album art disabled — please restart the app' : 'Album art enabled — please restart the app. First run may take a moment.')
+                                        : (enabled ? 'Album art disabled...' : 'Enabling album art...'),
+                                  ),
+                                  duration: Duration(seconds: _isDesktop ? 5 : 2),
+                                ),
+                              );
+                            }
+                            if (!_isDesktop) {
+                              await Future.delayed(const Duration(milliseconds: 500));
+                            }
+                            final shell = context.findAncestorStateOfType<_AppRootState>();
+                            shell?.toggleAlbumArt(!enabled);
+                          },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: enabled
+                                ? Colors.blueGrey[900]?.withValues(alpha: 0.3)
+                                : Colors.grey[900],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: enabled ? Colors.blueGrey[700]! : Colors.grey[800]!,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.album,
+                                color: enabled ? Colors.blueGrey[300] : Colors.white54,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Show Album Art',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: enabled ? Colors.blueGrey[300] : Colors.white70,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      enabled
+                                          ? 'Enabled — tap to disable'
+                                          : 'Disabled — first run may take a moment',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[500],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right,
+                                color: enabled ? Colors.blueGrey[400] : Colors.white38,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                  // Note about restart
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16, bottom: 24),
+                    child: Text(
+                      'App will close after toggling — reopen to apply. First enable extracts artwork from your music library.',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[600], height: 1.5),
+                    ),
+                  ),
+
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await AppSettings.clearArtworkCache();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Artwork cache cleared')),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.delete_sweep, size: 18),
+                      label: const Text(
+                        'Clear Artwork Cache',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+
+                  // Rescan album art button (only visible when enabled)
+                  FutureBuilder<bool>(
+                    future: AppSettings.loadShowAlbumArt(),
+                    builder: (context, snapshot) {
+                      final enabled = snapshot.data ?? false;
+                      if (!enabled) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                               final shell = context.findAncestorStateOfType<_AppRootState>();
+                               if (_isDesktop) {
+                                 if (context.mounted) {
+                                   ScaffoldMessenger.of(context).showSnackBar(
+                                     const SnackBar(content: Text('Rescanning artwork — please restart the app')),
+                                   );
+                                 }
+                               }
+                               shell?.rescanAlbumArt();
+                             },
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text(
+                            'Rescan Album Art',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
 
                   // Clear all data button
                   InkWell(
@@ -2924,6 +3110,156 @@ class _SettingsContentState extends State<_SettingsContent> {
 
                     const SizedBox(height: 32),
 
+                    // --- Album art settings (desktop) ---
+                    Divider(color: Colors.grey[800], height: 24),
+                    Text(
+                      'Album Art',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[300],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Display album artwork in grid tiles and song lists.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                    ),
+                    const SizedBox(height: 8),
+
+                    FutureBuilder<bool>(
+                      future: AppSettings.loadShowAlbumArt(),
+                      builder: (context, snapshot) {
+                        final enabled = snapshot.data ?? false;
+                        return InkWell(
+                           onTap: () async {
+                             if (context.mounted) {
+                                 ScaffoldMessenger.of(context).showSnackBar(
+                                   SnackBar(
+                                        content: Text(
+                                          _isDesktop
+                                              ? (enabled ? 'Album art disabled — please restart the app' : 'Album art enabled — please restart the app. First run may take a moment.')
+                                              : (enabled ? 'Album art disabled...' : 'Enabling album art...'),
+                                        ),
+                                        duration: Duration(seconds: _isDesktop ? 5 : 2),
+                                      ),
+                                 );
+                               }
+                               if (!_isDesktop) {
+                                 await Future.delayed(const Duration(milliseconds: 500));
+                               }
+                               final shell = context.findAncestorStateOfType<_AppRootState>();
+                               shell?.toggleAlbumArt(!enabled);
+                             },
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: enabled
+                                  ? Colors.blueGrey[900]?.withValues(alpha: 0.3)
+                                  : Colors.grey[900],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: enabled ? Colors.blueGrey[700]! : Colors.grey[800]!,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.album,
+                                  color: enabled ? Colors.blueGrey[300] : Colors.white54,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Show Album Art',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: enabled ? Colors.blueGrey[300] : Colors.white70,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        enabled
+                                            ? 'Enabled — tap to disable'
+                                            : 'Disabled — first run may take a moment',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[500],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.chevron_right,
+                                  color: enabled ? Colors.blueGrey[400] : Colors.white38,
+                                  size: 20,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                      ),
+
+                      // Note about restart (desktop)
+                      Padding(
+                       padding: const EdgeInsets.only(left: 16, bottom: 8),
+                       child: Text(
+                         'App will close after toggling — reopen to apply. First enable extracts artwork from your music library.',
+                         style: TextStyle(fontSize: 10, color: Colors.grey[600], height: 1.5),
+                       ),
+                      ),
+
+                      Padding(
+                       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                       child: OutlinedButton.icon(
+                         onPressed: () async {
+                           await AppSettings.clearArtworkCache();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Artwork cache cleared')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.delete_sweep, size: 18),
+                        label: const Text(
+                          'Clear Artwork Cache',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                             final shell = context.findAncestorStateOfType<_AppRootState>();
+                             if (_isDesktop) {
+                               if (context.mounted) {
+                                 ScaffoldMessenger.of(context).showSnackBar(
+                                   const SnackBar(content: Text('Rescanning artwork — please restart the app')),
+                                 );
+                               }
+                             }
+                             shell?.rescanAlbumArt();
+                           },
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text(
+                          'Rescan Album Art',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 32),
+
                     // Info
                     Text(
                       'Supported formats: MP3, FLAC, WAV, M4A, OGG, AAC, WMA, Opus\n\n'
@@ -2968,8 +3304,6 @@ class _SettingsContentState extends State<_SettingsContent> {
     );
   }
 }
-
-/// A single music folder tile with live accessibility status.
 class _MusicFolderTile extends StatefulWidget {
   final int index;
   final String folder;

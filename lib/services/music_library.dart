@@ -8,6 +8,7 @@ import 'package:on_audio_query/on_audio_query.dart';
 import '../models/song.dart';
 import 'music_scanner.dart' as desktop_scanner;
 import 'app_settings.dart';
+import 'artwork_extractor.dart';
 
 
 class MusicLibrary {
@@ -37,16 +38,36 @@ class MusicLibrary {
 
   // ---- Unified init (Android + Desktop) ----
 
-  /// Initialize and load all songs.
-  /// - Android: queries MediaStore via on_audio_query.
-  /// - Desktop: scans user-configured music folders via dart:io + ID3 parsing.
-  Future<List<Song>> init() async {
-    if (Platform.isAndroid) {
-      return _initAndroid();
-    } else {
-      return _initDesktop();
-    }
-  }
+ /// Initialize and load all songs.
+   /// - Android: queries MediaStore via on_audio_query.
+   /// - Desktop: scans user-configured music folders via dart:io + ID3 parsing.
+   ///
+   /// If a rescan flag was set (from settings toggle or manual rescan), does a
+   /// full artwork extraction. Otherwise loads cached thumbnails only (fast).
+   Future<List<Song>> init() async {
+     List<Song> songs;
+     if (Platform.isAndroid) {
+       songs = await _initAndroid();
+     } else {
+       songs = await _initDesktop();
+     }
+
+     // Check if a full artwork rescan was requested
+     final needsRescan = await AppSettings.consumeRescanFlag();
+     final showArt = await AppSettings.loadShowAlbumArt();
+
+     if (showArt) {
+       if (needsRescan) {
+         // Full extraction — skips songs that already have cached thumbnails
+         return ArtworkExtractor.extractForSongs(songs);
+       } else {
+         // Fast path: load cached thumbnails only
+         return ArtworkExtractor.loadCachedForSongs(songs);
+       }
+     }
+
+     return songs;
+   }
 
   /// Android path — query MediaStore.
   Future<List<Song>> _initAndroid() async {

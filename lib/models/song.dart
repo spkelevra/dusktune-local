@@ -1,6 +1,7 @@
 /// Song data model for dusktune.
 library;
 
+import 'dart:typed_data';
 import 'package:on_audio_query/on_audio_query.dart';
 
 class Song {
@@ -10,6 +11,7 @@ class Song {
   final String? album;
   final int duration;       // Duration in milliseconds
   final String uri;         // Content URI or file path for playback
+  final Uint8List? artworkBytes; // Cached album art thumbnail (JPEG)
 
   const Song({
     required this.id,
@@ -18,6 +20,7 @@ class Song {
     this.album,
     required this.duration,
     required this.uri,
+    this.artworkBytes,
   });
 
   /// Alias for [duration] in milliseconds — used by UI widgets.
@@ -48,7 +51,7 @@ class Song {
     );
   }
 
-  /// Create a [Song] from a map of metadata (desktop scanner).
+ /// Create a [Song] from a map of metadata (desktop scanner).
   factory Song.fromMap({
     required int id,
     required String title,
@@ -56,6 +59,7 @@ class Song {
     String? album,
     int duration = 0,
     required String uri,
+    Uint8List? artworkBytes,
   }) {
     return Song(
       id: id,
@@ -64,6 +68,28 @@ class Song {
       album: album,
       duration: duration,
       uri: uri,
+      artworkBytes: artworkBytes,
+    );
+  }
+
+  /// Create a copy of this song with updated fields.
+  Song copyWith({
+    int? id,
+    String? title,
+    String? artist,
+    String? album,
+    int? duration,
+    String? uri,
+    Uint8List? artworkBytes,
+  }) {
+    return Song(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      duration: duration ?? this.duration,
+      uri: uri ?? this.uri,
+      artworkBytes: artworkBytes ?? this.artworkBytes,
     );
   }
 

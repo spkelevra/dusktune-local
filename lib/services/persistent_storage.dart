@@ -49,6 +49,10 @@ class PersistentStorage {
   static const String _kPinnedGrid = 'pinned_grid.json';
   static const String _kMixes = 'mixes.json';
   static const String _kFavorites = 'favorites.json';
+  static const String _kShowAlbumArt = 'show_album_art.json';
+
+  /// Subdirectory for cached album artwork thumbnails.
+  static const String _artworkSubDir = 'artwork';
 
   /// The directory where persistent data is stored.
   /// On Android: /storage/emulated/0/Documents/dusktune/
@@ -289,6 +293,120 @@ class PersistentStorage {
     }
     
     await _writeJson(_kFavorites, ids);
+  }
+
+  // -- Show album art toggle (bool) --
+
+  /// Load whether album art display is enabled. Defaults to false.
+  static Future<bool> loadShowAlbumArt() async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('show_album_art') ?? false;
+    }
+
+    final data = await _readJsonAsync(_kShowAlbumArt);
+    if (data is bool) return data;
+    return false; // Default: off
+  }
+
+  /// Save album art display preference.
+  static Future<void> saveShowAlbumArt(bool enabled) async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('show_album_art', enabled);
+      return;
+    }
+
+    await _writeJson(_kShowAlbumArt, enabled);
+  }
+
+  // -- Artwork cache helpers --
+
+  /// Get the path to a cached artwork thumbnail for a given song ID.
+  static Future<String> getArtworkPath(int songId) async {
+    final dir = await _ensureDataDir();
+    final artDir = Directory('${dir.path}/$_artworkSubDir');
+    if (!artDir.existsSync()) {
+      artDir.createSync(recursive: true);
+    }
+    return '${artDir.path}/${songId}.jpg';
+  }
+
+  /// Save artwork bytes (Uint8List) to cache.
+  static Future<void> saveArtwork(int songId, List<int> bytes) async {
+    final path = await getArtworkPath(songId);
+    await File(path).writeAsBytes(bytes);
+  }
+
+  /// Load cached artwork for a song ID, or null if not found.
+  static Future<List<int>?> loadArtwork(int songId) async {
+    try {
+      final path = await getArtworkPath(songId);
+      final file = File(path);
+      if (!await file.exists()) return null;
+      return await file.readAsBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Check if artwork is cached for a song ID.
+  static Future<bool> hasArtwork(int songId) async {
+    try {
+      final path = await getArtworkPath(songId);
+      return await File(path).exists();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Clear all cached artwork thumbnails.
+  static Future<void> clearArtworkCache() async {
+    try {
+      final dir = await _ensureDataDir();
+      final artDir = Directory('${dir.path}/$_artworkSubDir');
+      if (artDir.existsSync()) {
+        await artDir.delete(recursive: true);
+      }
+    } catch (e) {
+      debugPrint('PersistentStorage clearArtworkCache error: $e');
+    }
+  }
+
+  // -- Artwork rescan flag --
+
+  static const String _kRescanFlag = 'rescan_artwork.json';
+
+  /// Set a flag to trigger a full artwork rescan on next app launch.
+  static Future<void> saveRescanFlag(bool value) async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('rescan_artwork', value);
+      return;
+    }
+    await _writeJson(_kRescanFlag, value);
+  }
+
+  /// Check and consume the rescan flag. Returns true if a rescan was requested,
+  /// and clears the flag so it only fires once.
+  static Future<bool> consumeRescanFlag() async {
+    bool flagged = false;
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      flagged = prefs.getBool('rescan_artwork') ?? false;
+      if (flagged) await prefs.setBool('rescan_artwork', false);
+    } else {
+      final data = await _readJsonAsync(_kRescanFlag);
+      if (data is bool && data) {
+        flagged = true;
+        // Clear the flag by deleting the file
+        try {
+          final path = await _filePath(_kRescanFlag);
+          await File(path).delete();
+        } catch (_) {}
+      }
+    }
+    return flagged;
   }
 
   // -- Music folders (desktop only, List<String>) --

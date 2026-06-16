@@ -2,6 +2,7 @@
 library;
 
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 /// Creates a deterministic [Canvas] painter from a string seed (song title).
@@ -240,6 +241,79 @@ class TitlePattern extends StatelessWidget {
     return CustomPaint(
       painter: TitlePatternPainter(title),
       size: Size.infinite,
+    );
+  }
+}
+
+/// Widget that shows album artwork if available, otherwise falls back to TitlePattern.
+class AlbumArtTile extends StatelessWidget {
+  final String title;
+  final Uint8List? artworkBytes;
+
+  const AlbumArtTile({
+    super.key,
+    required this.title,
+    this.artworkBytes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (artworkBytes != null && artworkBytes!.isNotEmpty) {
+      return Image.memory(
+        artworkBytes!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => TitlePattern(title: title),
+      );
+    }
+    return TitlePattern(title: title);
+  }
+}
+
+/// Small album art thumbnail for list items (leading icon).
+class AlbumArtThumbnail extends StatelessWidget {
+  final String title;
+  final Uint8List? artworkBytes;
+  final double size;
+
+  const AlbumArtThumbnail({
+    super.key,
+    required this.title,
+    this.artworkBytes,
+    this.size = 40,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (artworkBytes != null && artworkBytes!.isNotEmpty) {
+      return Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Image.memory(
+            artworkBytes!,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _fallbackIcon(),
+          ),
+        ),
+      );
+    }
+    return _fallbackIcon();
+  }
+
+  Widget _fallbackIcon() {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.grey[850],
+        borderRadius: BorderRadius.circular(4),
+      ),
+      alignment: Alignment.center,
+      child: const Icon(Icons.music_note, size: 18, color: Colors.white24),
     );
   }
 }
