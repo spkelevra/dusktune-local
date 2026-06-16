@@ -230,26 +230,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       onNext: _skipToNext,
       onPrevious: _skipToPrevious,
     );
-    // Load persisted settings (does not depend on song list)
+    // Load persisted settings and favorites
     _loadSettings();
-    // Defer favorites + pinned grid load until after first frame,
-    // so songs are guaranteed to be populated by the time we match IDs.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.allSongs.isNotEmpty) {
-        _loadFavoritesAsync();
-        _loadPinnedGrid(widget.allSongs);
-      }
-    });
-  }
-
-  @override
-  void didUpdateWidget(DuskTuneShell oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Reload when songs list changes (e.g. after library rescan).
-    if (widget.allSongs.isNotEmpty && oldWidget.allSongs.isEmpty) {
-      _loadFavoritesAsync();
-      _loadPinnedGrid(widget.allSongs);
-    }
+    _loadFavoritesAsync();
   }
 
   /// Load favorites from persistent storage (async, non-blocking).
@@ -272,16 +255,18 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   Future<void> _loadSettings() async {
-     final appName = await AppSettings.loadAppName();
-     final playCounts = await AppSettings.loadPlayCounts();
-     if (mounted) {
-       setState(() {
-         _appName = appName;
-         _playCounts.clear();
-         _playCounts.addAll(playCounts);
-       });
-     }
-     // Load mixes
+    final appName = await AppSettings.loadAppName();
+    final playCounts = await AppSettings.loadPlayCounts();
+    if (mounted) {
+      setState(() {
+        _appName = appName;
+        _playCounts.clear();
+        _playCounts.addAll(playCounts);
+      });
+    }
+    // Load pinned grid after settings are loaded
+    await _loadPinnedGrid(widget.allSongs);
+    // Load mixes
     final List<Map<String, dynamic>> loadedMixes =
         await AppSettings.loadMixes();
     if (mounted) {
