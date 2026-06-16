@@ -48,7 +48,7 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   bool _isLoading = true;
   List<Song> _songs = [];
-  int _tabIndex = 0; // 0=home, 1=library+search, 2=settings (desktop)
+  int _tabIndex = 0; // 0=home, 1=library, 2=mixes, 3=favorites, 4=settings (desktop)
   bool _needsFolderSetup = false; // Desktop: no music folders configured yet
 
   @override
@@ -196,16 +196,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   final List<Song> _favorites = [];
 
   // Mix grid: temporary storage for a mix being displayed.
-  List<Song>? _mixGridSongs;
-  bool _showingMix = false;
+    List<Song>? _mixGridSongs;
+    bool _showingMix = false;
 
-  // Mix menu overlay
-  bool _mixMenuOpen = false;
-
-  // Search state for library/favorites tabs
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _librarySearchFocusNode = FocusNode();
-  final FocusNode _favoritesSearchFocusNode = FocusNode();
+    // Search state for library/favorites/mixes tabs
+   final TextEditingController _searchController = TextEditingController();
+   final FocusNode _librarySearchFocusNode = FocusNode();
+   final FocusNode _mixesSearchFocusNode = FocusNode();
+   final FocusNode _favoritesSearchFocusNode = FocusNode();
   List<Song> _searchResults = [];
   bool _isSearching = false;
   Timer? _searchDebounce;
@@ -293,9 +291,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     AudioPlayerService.setOnTrackComplete(null);
     AudioPlayerService.setNotificationCallbacks(onNext: null, onPrevious: null);
     _searchDebounce?.cancel();
-    _searchController.dispose();
-    _librarySearchFocusNode.dispose();
-    _favoritesSearchFocusNode.dispose();
+     _searchController.dispose();
+     _librarySearchFocusNode.dispose();
+     _mixesSearchFocusNode.dispose();
+     _favoritesSearchFocusNode.dispose();
     super.dispose();
   }
 
@@ -481,14 +480,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     }
 
     setState(() {
-      _mixGridSongs = resolvedSongs;
-      _showingMix = true;
-      _shuffledTopNine = null; // clear shuffle when loading mix
-      _mixMenuOpen = false; // close menu after selection
-    });
-  }
+          _mixGridSongs = resolvedSongs;
+          _showingMix = true;
+          _shuffledTopNine = null; // clear shuffle when loading mix
+        });
+      }
 
-  /// Delete a mix by ID.
+      /// Delete a mix by ID.
   Future<void> deleteMix(int id) async {
     setState(() {
       _mixes.removeWhere((m) => (m['id'] as int) == id);
@@ -496,14 +494,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     await AppSettings.saveMixes(_mixes);
   }
 
-  /// Close the mix menu overlay.
-  void closeMixMenu() {
-    setState(() {
-      _mixMenuOpen = false;
-    });
-  }
-
-  /// Prompt user to name and save current grid as a mix.
+    /// Prompt user to name and save current grid as a mix.
   Future<void> promptSaveMix(BuildContext context) async {
     final ctrl = TextEditingController();
     final result = await showDialog<String>(
@@ -648,21 +639,19 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               child: Stack(
                 children: [
                   IndexedStack(
-                    index: widget.tabIndex,
-                    children: [
-                      _buildHomeTab(),
-                      _buildLibraryTab(),
-                      _buildFavoritesTab(),
-                      if (widget.isDesktop) const _SettingsContent(),
-                    ],
-                  ),
+                     index: widget.tabIndex,
+                     children: [
+                       _buildHomeTab(),
+                       _buildLibraryTab(),
+                       _buildMixesTab(),
+                       _buildFavoritesTab(),
+                       if (widget.isDesktop) const _SettingsContent(),
+                     ],
+                   ),
 
                   // Pin mode overlay — appears on all tabs when triggered
-                  if (_pinMode) _buildPinModeOverlay(getGridSongs()),
-
-                  // Mix menu overlay — scrollable list of saved mixes
-                  if (_mixMenuOpen) _buildMixMenuOverlay(),
-                ],
+                   if (_pinMode) _buildPinModeOverlay(getGridSongs()),
+                  ],
               ),
             ),
 
@@ -691,15 +680,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     final key = event.logicalKey;
 
     // Disable all hotkeys when a search field has focus so typing works normally.
-    if (_librarySearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus)
-      return;
+     if (_librarySearchFocusNode.hasFocus || _mixesSearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus)
+       return;
 
     // Backtick (`) → shuffle grid
-    if (key == LogicalKeyboardKey.backquote) {
-      closeMixMenu();
-      shuffleTopNine(context);
-      return;
-    }
+     if (key == LogicalKeyboardKey.backquote) {
+       shuffleTopNine(context);
+       return;
+     }
 
     // Space → toggle play/pause
     if (key == LogicalKeyboardKey.space) {
@@ -763,9 +751,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           // App name — tap goes home, hold/right-click opens rename
           GestureDetector(
             onTap: () {
-              closeMixMenu();
-              widget.onTabChanged(0);
-            },
+                          widget.onTabChanged(0);
+                        },
             onLongPress: () {
               showDialog<String>(
                 context: context,
@@ -850,14 +837,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           ),
           const SizedBox(width: 8),
           // Tab buttons (icons only)
-          _tabIcon(Icons.queue_music, 1),
-          const SizedBox(width: 4),
-          _tabIcon(Icons.favorite, 2),
-          // Settings tab (desktop only)
-          if (widget.isDesktop) ...[
-            const SizedBox(width: 4),
-            _tabIcon(Icons.tune, 3),
-          ],
+           _tabIcon(Icons.queue_music, 1),
+           const SizedBox(width: 4),
+           _tabIcon(Icons.audiotrack, 2),
+           const SizedBox(width: 4),
+           _tabIcon(Icons.favorite, 3),
+           // Settings tab (desktop only)
+           if (widget.isDesktop) ...[
+             const SizedBox(width: 4),
+             _tabIcon(Icons.tune, 4),
+           ],
         ],
       ),
     );
@@ -950,20 +939,18 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // "Mix" button — tap opens mix menu, long-press/right-click saves current grid as a mix
-                        GestureDetector(
-                          onSecondaryTap: () {
-                            closeMixMenu();
-                            promptSaveMix(context);
-                          },
-                          onLongPress: () {
-                            closeMixMenu();
-                            promptSaveMix(context);
-                          },
-                          child: TextButton.icon(
-                            onPressed: () {
-                              setState(() => _mixMenuOpen = !_mixMenuOpen);
-                            },
+                        // "Mix" button — tap prompts to name/save current grid as a mix; long-press/right-click opens mixes tab
+                         GestureDetector(
+                           onSecondaryTap: () {
+                             widget.onTabChanged(2);
+                           },
+                           onLongPress: () {
+                             widget.onTabChanged(2);
+                           },
+                           child: TextButton.icon(
+                             onPressed: () {
+                               promptSaveMix(context);
+                             },
                             icon: const Icon(
                               Icons.audiotrack,
                               size: 16,
@@ -1003,9 +990,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           },
                           child: TextButton.icon(
                             onPressed: () {
-                              // Restore pinned grid by clearing shuffle, then scroll to top
-                              closeMixMenu();
-                              resetTopPicks();
+                                                          // Restore pinned grid by clearing shuffle, then scroll to top
+                                                          resetTopPicks();
                               final scrollable = Scrollable.of(context);
                               scrollable.position.animateTo(
                                 0,
@@ -1037,11 +1023,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         ),
                         const SizedBox(width: 4),
                         // Shuffle button — original behavior preserved
-                        TextButton.icon(
-                          onPressed: () {
-                            closeMixMenu();
-                            shuffleTopNine(context);
-                          },
+                                                TextButton.icon(
+                                                  onPressed: () {
+                                                    shuffleTopNine(context);
+                                                  },
                           icon: const Icon(
                             Icons.shuffle,
                             size: 16,
@@ -1294,144 +1279,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     );
   }
 
-  /// Mix menu overlay — scrollable list of saved mixes with delete option.
-  Widget _buildMixMenuOverlay() {
-    return Positioned.fill(
-      child: GestureDetector(
-        onTap: () => closeMixMenu(),
-        child: Container(
-          color: Colors.black54,
-          child: Center(
-            child: GestureDetector(
-              onTap: () {}, // prevent tap from propagating to dismiss
-              child: Container(
-                width: 360,
-                constraints: const BoxConstraints(maxHeight: 480),
-                decoration: BoxDecoration(
-                  color: Colors.grey[900],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Header
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'mixes',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white70,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => closeMixMenu(),
-                            child: const Text(
-                              'close',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white54,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Mix list or empty state
-                    Flexible(
-                      child: _mixes.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 32),
-                              child: Center(
-                                child: Text(
-                                  'no mixes yet',
-                                  style: TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              itemCount: _mixes.length,
-                              separatorBuilder: (context, index) =>
-                                  const Divider(
-                                    color: Colors.white10,
-                                    height: 1,
-                                  ),
-                              itemBuilder: (context, index) {
-                                final mix = _mixes[index];
-                                return ListTile(
-                                  leading: Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[850],
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: const Icon(
-                                      Icons.audiotrack,
-                                      size: 18,
-                                      color: Colors.white24,
-                                    ),
-                                  ),
-                                  title: Text(
-                                    mix['name'] as String? ?? 'untitled',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  subtitle: Text(
-                                    '${((mix['songIds'] as List).length)} songs',
-                                    style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  onTap: () => loadMixIntoGrid(mix),
-                                  trailing: IconButton(
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      size: 18,
-                                      color: Colors.white38,
-                                    ),
-                                    onPressed: () async {
-                                      await deleteMix((mix['id'] as int));
-                                    },
-                                    tooltip: 'Delete',
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Top tile with generated pattern.
+    /// Top tile with generated pattern.
   Widget _buildTopTile(
     Song song, {
     List<Song>? queue,
@@ -2028,7 +1876,131 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     );
   }
 
-  /// Bottom player bar with controls.
+   /// Mixes tab — list of saved mixes with search and delete.
+   Widget _buildMixesTab() {
+     final hasSearchQuery = _searchController.text.trim().isNotEmpty;
+     final filteredMixes = hasSearchQuery
+         ? _mixes.where((m) {
+             final name = (m['name'] as String? ?? '').toLowerCase();
+             return name.contains(_searchController.text.toLowerCase());
+           }).toList()
+         : _mixes;
+
+     return Stack(
+       children: [
+         CustomScrollView(
+           slivers: [
+             // Sticky search field at top of mixes tab
+             SliverPersistentHeader(
+               pinned: true,
+               delegate: _SearchBarDelegate(
+                 _searchController,
+                 (_) {}, // no async search needed — filter is synchronous
+                 focusNode: _mixesSearchFocusNode,
+               ),
+             ),
+
+             if (hasSearchQuery) ...[
+               if (filteredMixes.isEmpty)
+                 const SliverFillRemaining(
+                   child: Center(
+                     child: Text(
+                       'no results found',
+                       style: TextStyle(color: Colors.white54),
+                     ),
+                   ),
+                 )
+               else
+                 SliverList(
+                   delegate: SliverChildBuilderDelegate((context, index) {
+                     final mix = filteredMixes[index];
+                     return _buildMixTile(mix);
+                   }, childCount: filteredMixes.length),
+                 ),
+             ] else ...[
+               // Full mixes list
+               if (_mixes.isEmpty)
+                 const SliverFillRemaining(
+                   child: Center(
+                     child: Text(
+                       'no mixes yet',
+                       style: TextStyle(color: Colors.white54),
+                     ),
+                   ),
+                 )
+               else
+                 SliverList(
+                   delegate: SliverChildBuilderDelegate((context, index) {
+                     final mix = _mixes[index];
+                     return _buildMixTile(mix);
+                   }, childCount: _mixes.length),
+                 ),
+             ],
+
+             // Bottom padding for player
+             if (!hasSearchQuery)
+               const SliverToBoxAdapter(child: SizedBox(height: 80)),
+           ],
+         ),
+       ],
+     );
+   }
+
+   /// Build a single mix list tile with delete button.
+   Widget _buildMixTile(Map<String, dynamic> mix) {
+     final name = mix['name'] as String? ?? 'untitled';
+     final songCount = (mix['songIds'] as List).length;
+     final id = mix['id'] as int;
+
+     return ListTile(
+       leading: Container(
+         width: 40,
+         height: 40,
+         decoration: BoxDecoration(
+           color: Colors.grey[850],
+           borderRadius: BorderRadius.circular(4),
+         ),
+         alignment: Alignment.center,
+         child: const Icon(
+           Icons.audiotrack,
+           size: 18,
+           color: Colors.white24,
+         ),
+       ),
+       title: Text(
+         name,
+         style: const TextStyle(
+           color: Colors.white,
+           fontSize: 13,
+         ),
+         maxLines: 1,
+         overflow: TextOverflow.ellipsis,
+       ),
+       subtitle: Text(
+         '$songCount songs',
+         style: const TextStyle(
+           color: Colors.white54,
+           fontSize: 11,
+         ),
+       ),
+       onTap: () => loadMixIntoGrid(mix),
+       trailing: IconButton(
+         icon: const Icon(
+           Icons.delete_outline,
+           size: 18,
+           color: Colors.white38,
+         ),
+         onPressed: () async {
+           await deleteMix(id);
+         },
+         tooltip: 'Delete',
+         padding: EdgeInsets.zero,
+         constraints: const BoxConstraints(),
+       ),
+     );
+   }
+
+   /// Bottom player bar with controls.
   Widget _buildBottomPlayer() {
     if (_currentSong == null) return const SizedBox.shrink();
 
