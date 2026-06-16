@@ -729,12 +729,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       tileIndex = 8;
 
     if (tileIndex != null) {
-      final topSongs = getTopSongs(9);
-      if (tileIndex < topSongs.length) {
-        setState(() => _selectedGridTile = tileIndex);
-        playSong(topSongs[tileIndex], queue: topSongs);
-      }
-    }
+       final gridSongs = getGridSongs();
+       if (tileIndex < gridSongs.length) {
+         setState(() => _selectedGridTile = tileIndex);
+         playSong(gridSongs[tileIndex], queue: gridSongs);
+       }
+     }
   }
 
   /// Top navigation bar with editable app name + tab buttons.
