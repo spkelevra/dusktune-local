@@ -1448,12 +1448,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        trailing: _isDesktop
-            ? null
-            : Text(
-                song.formattedDuration,
-                style: const TextStyle(fontSize: 11, color: Colors.white38),
-              ),
+        trailing: Text(
+           _playCounts[song.id]?.toString() ?? '0',
+           style: const TextStyle(fontSize: 10, color: Colors.white38),
+         ),
         onTap: onTap,
       ),
     );
