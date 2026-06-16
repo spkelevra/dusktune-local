@@ -204,6 +204,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   // Search state for library/favorites tabs
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _librarySearchFocusNode = FocusNode();
+  final FocusNode _favoritesSearchFocusNode = FocusNode();
   List<Song> _searchResults = [];
   bool _isSearching = false;
   Timer? _searchDebounce;
@@ -292,6 +294,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     AudioPlayerService.setNotificationCallbacks(onNext: null, onPrevious: null);
     _searchDebounce?.cancel();
     _searchController.dispose();
+    _librarySearchFocusNode.dispose();
+    _favoritesSearchFocusNode.dispose();
     super.dispose();
   }
 
@@ -686,9 +690,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     if (event is! KeyDownEvent) return;
     final key = event.logicalKey;
 
-    // Disable hotkeys when actively searching in library or favorites tabs so typing works normally.
-    if ((widget.tabIndex == 1 || widget.tabIndex == 2) &&
-        _searchController.text.trim().isNotEmpty)
+    // Disable all hotkeys when a search field has focus so typing works normally.
+    if (_librarySearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus)
       return;
 
     // Backtick (`) → shuffle grid
@@ -1722,7 +1725,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             // Sticky search field at top of library tab
             SliverPersistentHeader(
               pinned: true,
-              delegate: _SearchBarDelegate(_searchController, _doSearch),
+              delegate: _SearchBarDelegate(
+                _searchController,
+                _doSearch,
+                focusNode: _librarySearchFocusNode,
+              ),
             ),
 
             // Show search results or full library based on query
@@ -1902,7 +1909,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             // Sticky search field at top of favorites tab
             SliverPersistentHeader(
               pinned: true,
-              delegate: _SearchBarDelegate(_searchController, _doFavSearch),
+              delegate: _SearchBarDelegate(
+                _searchController,
+                _doFavSearch,
+                focusNode: _favoritesSearchFocusNode,
+              ),
             ),
 
             if (hasSearchQuery) ...[
@@ -2351,9 +2362,14 @@ class _SearchContentState extends State<_SearchContent> {
 /// Sticky search bar delegate for library tab.
 class _SearchBarDelegate extends SliverPersistentHeaderDelegate {
   final TextEditingController controller;
+  final FocusNode focusNode;
   final ValueChanged<String> onChanged;
 
-  const _SearchBarDelegate(this.controller, this.onChanged);
+  const _SearchBarDelegate(
+    this.controller,
+    this.onChanged, {
+    required this.focusNode,
+  });
 
   @override
   double get minExtent => 64;
@@ -2372,6 +2388,7 @@ class _SearchBarDelegate extends SliverPersistentHeaderDelegate {
         padding: const EdgeInsets.all(12),
         child: TextField(
           controller: controller,
+          focusNode: focusNode,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
             hintText: 'search songs or artists...',
