@@ -1983,7 +1983,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
            fontSize: 11,
          ),
        ),
-       onTap: () => loadMixIntoGrid(mix),
+       onTap: () {
+        loadMixIntoGrid(mix);
+        widget.onTabChanged(0); // go home to see the mix in the grid
+      },
        trailing: IconButton(
          icon: const Icon(
            Icons.delete_outline,
