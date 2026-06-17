@@ -25,7 +25,7 @@ String songDisplayArtist(Song song) {
     return artist;
   }
   final uri = song.uri;
-  final separator = uri.contains(r'\\') ? r'\\' : '/';
+  final separator = uri.contains(r'\') ? r'\' : '/';
   final parts = uri.split(separator);
   if (parts.length >= 2) {
     return parts[parts.length - 2];
@@ -254,7 +254,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     List<Song>? _mixGridSongs;
     bool _showingMix = false;
 
-    // Search state for library/favorites/mixes tabs
+      // Mix edit overlay state
+      bool _isEditingMix = false;
+      Map<String, dynamic>? _editingMix;
+      List<Song>? _editMixSongs;
+      int _mixSwapSourceIndex = -1;
+
+        // Search state for library/favorites/mixes tabs
    final TextEditingController _searchController = TextEditingController();
    final FocusNode _librarySearchFocusNode = FocusNode();
    final FocusNode _mixesSearchFocusNode = FocusNode();
@@ -603,14 +609,53 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       }
 
       /// Delete a mix by ID.
-  Future<void> deleteMix(int id) async {
-    setState(() {
-      _mixes.removeWhere((m) => (m['id'] as int) == id);
-    });
-    await AppSettings.saveMixes(_mixes);
-  }
+        Future<void> deleteMix(int id) async {
+          setState(() {
+            _mixes.removeWhere((m) => (m['id'] as int) == id);
+          });
+          await AppSettings.saveMixes(_mixes);
+        }
 
-    /// Prompt user to name and save current grid as a mix.
+        /// Open the mix edit overlay for a given mix.
+        void openMixEdit(Map<String, dynamic> mix) {
+          final songIds = List<int>.from(mix['songIds'] as List);
+          final songs = <Song>[];
+          for (final id in songIds) {
+            try {
+              songs.add(widget.allSongs.firstWhere((s) => s.id == id));
+            } catch (_) {}
+          }
+          setState(() {
+            _isEditingMix = true;
+            _editingMix = mix;
+            _editMixSongs = List.from(songs);
+            _mixSwapSourceIndex = -1;
+          });
+        }
+
+        /// Save the edited song order back to the mix.
+        Future<void> saveEditMix() async {
+          if (_editingMix == null || _editMixSongs == null) return;
+          final id = _editingMix!['id'] as int;
+          setState(() {
+            for (int i = 0; i < _mixes.length; i++) {
+              if ((_mixes[i]['id'] as int) == id) {
+                _mixes[i]['songIds'] = List<int>.from(
+                  _editMixSongs!.map((s) => s.id),
+                );
+                break;
+              }
+            }
+          });
+          await AppSettings.saveMixes(_mixes);
+          setState(() {
+            _isEditingMix = false;
+            _editingMix = null;
+            _editMixSongs = null;
+          });
+        }
+
+          /// Prompt user to name and save current grid as a mix.
   Future<void> promptSaveMix(BuildContext context) async {
     final ctrl = TextEditingController();
     final result = await showDialog<String>(
@@ -770,6 +815,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
                   // Pin mode overlay — appears on all tabs when triggered
                    if (_pinMode) _buildPinModeOverlay(getGridSongs()),
+                  // Mix edit overlay — appears when editing a mix's song order
+                   if (_isEditingMix) _buildMixEditOverlay(),
                   ],
               ),
             ),
@@ -2131,58 +2178,201 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      final songCount = (mix['songIds'] as List).length;
      final id = mix['id'] as int;
 
-     return ListTile(
-       leading: Container(
-         width: 40,
-         height: 40,
-         decoration: BoxDecoration(
-           color: Colors.grey[850],
-           borderRadius: BorderRadius.circular(4),
+     return GestureDetector(
+       onSecondaryTap: () => openMixEdit(mix),
+       onLongPress: () => openMixEdit(mix),
+       child: ListTile(
+         leading: Container(
+           width: 40,
+           height: 40,
+           decoration: BoxDecoration(
+             color: Colors.grey[850],
+             borderRadius: BorderRadius.circular(4),
+           ),
+           alignment: Alignment.center,
+           child: const Icon(
+             Icons.audiotrack,
+             size: 18,
+             color: Colors.white24,
+           ),
          ),
-         alignment: Alignment.center,
-         child: const Icon(
-           Icons.audiotrack,
-           size: 18,
-           color: Colors.white24,
+         title: Text(
+           name,
+           style: const TextStyle(
+             color: Colors.white,
+             fontSize: 13,
+           ),
+           maxLines: 1,
+           overflow: TextOverflow.ellipsis,
          ),
-       ),
-       title: Text(
-         name,
-         style: const TextStyle(
-           color: Colors.white,
-           fontSize: 13,
+         subtitle: Text(
+           '$songCount songs',
+           style: const TextStyle(
+             color: Colors.white54,
+             fontSize: 11,
+           ),
          ),
-         maxLines: 1,
-         overflow: TextOverflow.ellipsis,
-       ),
-       subtitle: Text(
-         '$songCount songs',
-         style: const TextStyle(
-           color: Colors.white54,
-           fontSize: 11,
+         onTap: () {
+          loadMixIntoGrid(mix);
+          widget.onTabChanged(0); // go home to see the mix in the grid
+        },
+         trailing: IconButton(
+           icon: const Icon(
+             Icons.delete_outline,
+             size: 18,
+             color: Colors.white38,
+           ),
+           onPressed: () async {
+             await deleteMix(id);
+           },
+           tooltip: 'Delete',
+           padding: EdgeInsets.zero,
+           constraints: const BoxConstraints(),
          ),
-       ),
-       onTap: () {
-        loadMixIntoGrid(mix);
-        widget.onTabChanged(0); // go home to see the mix in the grid
-      },
-       trailing: IconButton(
-         icon: const Icon(
-           Icons.delete_outline,
-           size: 18,
-           color: Colors.white38,
-         ),
-         onPressed: () async {
-           await deleteMix(id);
-         },
-         tooltip: 'Delete',
-         padding: EdgeInsets.zero,
-         constraints: const BoxConstraints(),
        ),
      );
-   }
+     }
 
-   /// Bottom player bar with controls.
+     /// Mix edit overlay — shows all songs in the mix with swap capability.
+     Widget _buildMixEditOverlay() {
+       if (_editingMix == null || _editMixSongs == null) return const SizedBox.shrink();
+
+       final songCount = _editMixSongs!.length;
+
+       return Positioned.fill(
+         child: GestureDetector(
+           onTap: () => saveEditMix(),
+           child: Container(
+             color: Colors.black54,
+             child: Center(
+               child: GestureDetector(
+                 onTap: () {},
+                 child: Container(
+                   width: 360,
+                   constraints: const BoxConstraints(maxHeight: 500),
+                   padding: const EdgeInsets.all(16),
+                   decoration: BoxDecoration(
+                     color: Colors.grey[900],
+                     borderRadius: BorderRadius.circular(12),
+                     border: Border.all(color: Colors.white24),
+                   ),
+                   child: Column(
+                     mainAxisSize: MainAxisSize.min,
+                     children: [
+                       Row(
+                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                         children: [
+                           Flexible(
+                             child: Text(
+                               'Edit mix',
+                               style: const TextStyle(
+                                 fontSize: 14,
+                                 fontWeight: FontWeight.w600,
+                                 color: Colors.white,
+                               ),
+                             ),
+                           ),
+                           if (_mixSwapSourceIndex >= 0)
+                             Container(
+                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                               decoration: BoxDecoration(
+                                 color: Colors.white38,
+                                 borderRadius: BorderRadius.circular(4),
+                               ),
+                               child: Text(
+                                 "Select tile ${_mixSwapSourceIndex + 1}",
+                                 style: const TextStyle(fontSize: 9, color: Colors.white70),
+                               ),
+                             ),
+                           IconButton(
+                             icon: const Icon(Icons.close, size: 18),
+                             onPressed: () => saveEditMix(),
+                             color: Colors.white54,
+                           ),
+                         ],
+                       ),
+                       Padding(
+                         padding: const EdgeInsets.only(bottom: 4),
+                         child: Text(
+                           '$songCount songs - tap two tiles to swap',
+                           style: const TextStyle(fontSize: 10, color: Colors.white38),
+                         ),
+                       ),
+                       const SizedBox(height: 8),
+                       Expanded(
+                         child: GridView.builder(
+                           shrinkWrap: true,
+                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                             crossAxisCount: 3,
+                             childAspectRatio: 2.0,
+                             crossAxisSpacing: 6,
+                             mainAxisSpacing: 4,
+                           ),
+                           itemCount: _editMixSongs!.length,
+                           itemBuilder: (context, index) {
+                             final song = _editMixSongs![index];
+                             final isSwapSource = _mixSwapSourceIndex == index;
+                             return GestureDetector(
+                               onTap: () {
+                                 if (_mixSwapSourceIndex < 0) {
+                                   setState(() => _mixSwapSourceIndex = index);
+                                 } else if (_mixSwapSourceIndex != index) {
+                                   final temp = _editMixSongs![index];
+                                   _editMixSongs![index] = _editMixSongs![_mixSwapSourceIndex];
+                                   _editMixSongs![_mixSwapSourceIndex] = temp;
+                                   setState(() => _mixSwapSourceIndex = -1);
+                                 } else {
+                                   setState(() => _mixSwapSourceIndex = -1);
+                                 }
+                               },
+                               child: Container(
+                                 decoration: BoxDecoration(
+                                   color: isSwapSource ? Colors.white24 : Colors.grey[850],
+                                   borderRadius: BorderRadius.circular(4),
+                                   border: Border.all(
+                                     color: isSwapSource ? Colors.white70 : Colors.white12,
+                                   ),
+                                 ),
+                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                 child: Row(
+                                   mainAxisSize: MainAxisSize.min,
+                                   children: [
+                                     Flexible(
+                                       child: Text(
+                                         song.displayName,
+                                         style: const TextStyle(fontSize: 9, color: Colors.white70),
+                                         maxLines: 1,
+                                         overflow: TextOverflow.ellipsis,
+                                       ),
+                                     ),
+                                     const SizedBox(width: 2),
+                                     Container(
+                                       width: 16,
+                                       height: 16,
+                                       alignment: Alignment.center,
+                                       child: Text(
+                                         '${index + 1}',
+                                         style: const TextStyle(fontSize: 8, color: Colors.white38),
+                                       ),
+                                     ),
+                                   ],
+                                 ),
+                               ),
+                             );
+                           },
+                         ),
+                       ),
+                     ],
+                   ),
+                 ),
+               ),
+             ),
+           ),
+         ),
+       );
+     }
+
+      /// Bottom player bar with controls.
   Widget _buildBottomPlayer() {
     if (_currentSong == null) return const SizedBox.shrink();
 
