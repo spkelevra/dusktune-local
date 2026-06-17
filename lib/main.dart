@@ -1386,33 +1386,33 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        song.title,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.white70,
-                          fontWeight: FontWeight.w500,
+                          song.title,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 1),
-                      Text(
-                        context,
-                        style: const TextStyle(
-                          fontSize: 8,
-                          color: Colors.white54,
+                        const SizedBox(height: 1),
+                        Text(
+                          context,
+                          style: const TextStyle(
+                            fontSize: 9,
+                            color: Colors.white54,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  )
-                : Text(
-                    song.title,
-                    style: const TextStyle(
-                      fontSize: 10,
+                      ],
+                      )
+                      : Text(
+                      song.title,
+                      style: const TextStyle(
+                        fontSize: 12,
                       color: Colors.white70,
                       fontWeight: FontWeight.w500,
                     ),
