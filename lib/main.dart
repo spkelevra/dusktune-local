@@ -2802,6 +2802,64 @@ class _SettingsContentState extends State<_SettingsContent> {
                     style: TextStyle(fontSize: 13, color: Colors.grey[500]),
                   ),
 
+                  // --- Rescan music library (Android) ---
+                  const SizedBox(height: 24),
+                  InkWell(
+                    onTap: () async {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Rescanning music library...')),
+                        );
+                      }
+                      final shell = context.findAncestorStateOfType<_AppRootState>();
+                      final songCount = await shell?.rescanLibrary() ?? 0;
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Found $songCount songs')),
+                        );
+                      }
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[900],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[700]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.refresh, color: Colors.grey[300], size: 22),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Rescan Music Library',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.grey[300],
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Re-query MediaStore for new or missing songs',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[500],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, color: Colors.grey[500], size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+
                   // --- Album art toggle (mobile) ---
                   const SizedBox(height: 24),
                   FutureBuilder<bool>(
