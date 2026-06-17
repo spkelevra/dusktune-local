@@ -1051,44 +1051,66 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             const SliverToBoxAdapter(child: SizedBox(height: 16)),
 
             // Top 9 grid
+            // Top 9 grid (with horizontal swipe: right→shuffle, left→restore grid)
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isDesktop =
-                        Platform.isWindows ||
-                        Platform.isMacOS ||
-                        Platform.isLinux;
-                    // On desktop, cap tile height so grid doesn't dominate the viewport
-                    final maxTileHeight = isDesktop ? 180.0 : double.infinity;
-                    return GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        childAspectRatio: isDesktop ? 1.0 : 0.9,
-                        mainAxisExtent: isDesktop ? maxTileHeight : null,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                      ),
-                      itemCount: gridSongs.length,
-                      itemBuilder: (context, index) {
-                        final song = gridSongs[index];
-                        return _buildTopTile(
-                          song,
-                          queue: gridSongs,
-                          isSelected: _selectedGridTile == index,
-                          onTap: () {
-                            setState(() => _selectedGridTile = index);
-                            playSong(song, queue: gridSongs);
-                          },
+              child: GestureDetector(
+                onHorizontalDragEnd: (details) {
+                  if (details.primaryVelocity != null) {
+                    setState(() {
+                      if (details.primaryVelocity! > 0) {
+                        // Swipe right → shuffle
+                        shuffleTopNine(context);
+                      } else {
+                        // Swipe left → restore pinned grid (The Grid function)
+                        resetTopPicks();
+                        final scrollable = Scrollable.of(context);
+                        scrollable.position.animateTo(
+                          0,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeOut,
                         );
-                      },
-                    );
-                  },
-                ),
-              ),
+                      }
+                    });
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final isDesktop =
+                          Platform.isWindows ||
+                          Platform.isMacOS ||
+                          Platform.isLinux;
+                      // On desktop, cap tile height so grid doesn't dominate the viewport
+                      final maxTileHeight = isDesktop ? 180.0 : double.infinity;
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          childAspectRatio: isDesktop ? 1.0 : 0.9,
+                          mainAxisExtent: isDesktop ? maxTileHeight : null,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                        ),
+                        itemCount: gridSongs.length,
+                        itemBuilder: (context, index) {
+                          final song = gridSongs[index];
+                          return _buildTopTile(
+                            song,
+                            queue: gridSongs,
+                            isSelected: _selectedGridTile == index,
+                            onTap: () {
+                              setState(() => _selectedGridTile = index);
+                              playSong(song, queue: gridSongs);
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ), // close Padding
+              ), // close GestureDetector (swipe handler)
             ),
 
             // Recent songs section header
