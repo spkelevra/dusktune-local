@@ -439,6 +439,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     /// Current page index for cycling through most-played batches of 9.
     int _topsPage = 0;
 
+    /// Whether the Tops button has been tapped at least once since launch.
+    bool _topsFirstUse = true;
+
     /// Shuffle the top 9 to random songs — does NOT start playback.
   void shuffleTopNine(BuildContext context) {
     final rng = math.Random();
@@ -489,7 +492,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     /// Cycle to the next page of most-played songs (batch of 9).
         void showTops() {
           setState(() {
-            _topsPage = (_topsPage + 1) % ((widget.allSongs.length + 8) ~/ 9);
+            // First tap after launch: show page 0 (most played) without incrementing.
+            if (_topsFirstUse) {
+              _topsFirstUse = false;
+              _topsPage = 0;
+            } else {
+              _topsPage = (_topsPage + 1) % ((widget.allSongs.length + 8) ~/ 9);
+            }
             // Store the topped batch — overrides pins, just like shuffle does.
             _toppedNine = _getTopsBatch(9);
             // Clear shuffle/mix so we go back to ranked tops display
@@ -503,6 +512,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       void resetTops() {
         setState(() {
           _topsPage = 0;
+          _topsFirstUse = true; // allow first-tap behavior again after reset
           _toppedNine = _getTopsBatch(9);
           // Clear shuffle/mix so we go back to ranked tops display
           _shuffledTopNine = null;
