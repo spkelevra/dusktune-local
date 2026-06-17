@@ -243,6 +243,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   // Pin mode: overlay for assigning current song to a tile.
   bool _pinMode = false;
+    int? _pinSwapSourceIndex; // source tile for swap in pin mode overlay
   Song?
   _pinSourceSong; // Song to pin when entering pin mode (from tile long-press or grid button)
 
@@ -254,13 +255,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     List<Song>? _mixGridSongs;
     bool _showingMix = false;
 
-      // Mix edit overlay state
-      bool _isEditingMix = false;
-      Map<String, dynamic>? _editingMix;
-      List<Song>? _editMixSongs;
-      int _mixSwapSourceIndex = -1;
+      // Mix edit: reuses _pinMode with a working copy of songs and swap source tracking.
+    Map<String, dynamic>? _editingMix; // the mix being edited via pin mode overlay
+    List<Song>? _editMixSongs;         // working copy of songs for the mix being edited
 
-        // Search state for library/favorites/mixes tabs
+      // Search state for library/favorites/mixes tabs
    final TextEditingController _searchController = TextEditingController();
    final FocusNode _librarySearchFocusNode = FocusNode();
    final FocusNode _mixesSearchFocusNode = FocusNode();
@@ -626,14 +625,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             } catch (_) {}
           }
           setState(() {
-            _isEditingMix = true;
             _editingMix = mix;
             _editMixSongs = List.from(songs);
-            _mixSwapSourceIndex = -1;
+            // Enter pin mode to reuse the existing grid overlay UI.
+            _pinMode = true;
+            _pinSourceSong = null;
           });
         }
 
-        /// Save the edited song order back to the mix.
+        /// Save the edited song order back to the mix (called when exiting pin mode).
         Future<void> saveEditMix() async {
           if (_editingMix == null || _editMixSongs == null) return;
           final id = _editingMix!['id'] as int;
@@ -649,7 +649,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           });
           await AppSettings.saveMixes(_mixes);
           setState(() {
-            _isEditingMix = false;
             _editingMix = null;
             _editMixSongs = null;
           });
@@ -815,8 +814,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
                   // Pin mode overlay — appears on all tabs when triggered
                    if (_pinMode) _buildPinModeOverlay(getGridSongs()),
-                  // Mix edit overlay — appears when editing a mix's song order
-                   if (_isEditingMix) _buildMixEditOverlay(),
                   ],
               ),
             ),
@@ -1274,9 +1271,19 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   /// Pin mode overlay — semi-transparent dialog for assigning current song to a tile.
   Widget _buildPinModeOverlay(List<Song> gridSongs) {
+    // Check if we're in mix edit mode (editing a mix via the mixes tab)
+    final isMixEdit = _editingMix != null;
+    final List<Song>? displaySongs = isMixEdit ? _editMixSongs : null;
+
     return Positioned.fill(
       child: GestureDetector(
-        onTap: () => setState(() => _pinMode = false),
+        onTap: () async {
+          if (isMixEdit) await saveEditMix();
+          setState(() {
+            _pinMode = false;
+            _pinSwapSourceIndex = null;
+          });
+        },
         child: Container(
           color: Colors.black54,
           child: Center(
@@ -1293,16 +1300,28 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Pin current song to a tile',
-                      style: TextStyle(
+                    Text(
+                      isMixEdit ? 'Edit mix' : 'Pin current song to a tile',
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),
                     ),
-                    // Show the song that will be pinned (from tile or current song)
-                    if (_pinSourceSong != null || _currentSong != null)
+                    // Show swap hint when in swap mode (not mix edit)
+                    if (!isMixEdit && _pinSwapSourceIndex != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(
+                          'Tap a tile to swap with ${_pinSwapSourceIndex! + 1}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ),
+                    // Show the song that will be pinned (from tile or current song) — only in pin mode
+                    if (!isMixEdit && _pinSourceSong != null || !isMixEdit && _currentSong != null)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(
@@ -1319,7 +1338,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         ),
                       ),
                     const SizedBox(height: 12),
-                    // 3x3 grid for tile selection
+                    // 3x3 grid for tile selection (or mix edit)
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
@@ -1330,36 +1349,75 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             crossAxisSpacing: 6,
                             mainAxisSpacing: 6,
                           ),
-                      itemCount: 9,
+                      itemCount: isMixEdit ? (displaySongs?.length ?? 9) : 9,
                       itemBuilder: (context, index) {
-                        final hasPinned = _pinnedGrid.containsKey(index);
-                        final Song? pinnedSong = hasPinned
-                            ? _pinnedGrid[index]
-                            : null;
+                        // In mix edit mode, use displaySongs; otherwise use pinned grid.
+                        final Song? song = isMixEdit
+                            ? (displaySongs != null && index < displaySongs.length ? displaySongs[index] : null)
+                            : (_pinnedGrid.containsKey(index) ? _pinnedGrid[index] : null);
+
+                        final bool hasSong = song != null;
+                        final bool isSwapSource = _pinSwapSourceIndex == index;
+                        final bool showPinIcon = !isMixEdit && _pinnedGrid.containsKey(index);
+
                         return GestureDetector(
                           onTap: () async {
-                            if (_pinSourceSong != null) {
+                            if (isMixEdit) {
+                              // Mix edit mode: two-tap swap between songs in the mix.
+                              if (_pinSwapSourceIndex == null) {
+                                setState(() => _pinSwapSourceIndex = index);
+                              } else {
+                                // Swap the two tiles in the working copy.
+                                final temp = displaySongs![index];
+                                displaySongs[index] = displaySongs[_pinSwapSourceIndex!];
+                                displaySongs[_pinSwapSourceIndex!] = temp;
+                                setState(() => _pinSwapSourceIndex = null);
+                              }
+                            } else if (_pinSourceSong != null) {
+                              // Normal pin mode: assign the source song to this tile.
                               await pinSongToTile(_pinSourceSong!, index);
+                              setState(() => _pinMode = false);
+                              _pinSourceSong = null;
+                            } else if (!isMixEdit && _pinSwapSourceIndex != null) {
+                              // Swap mode: swap two tiles in the pinned grid.
+                              final sourceIdx = _pinSwapSourceIndex!;
+                              final hasSrc = _pinnedGrid.containsKey(sourceIdx);
+                              final hasDst = _pinnedGrid.containsKey(index);
+
+                              if (hasSrc && hasDst) {
+                                // Both have songs — swap them.
+                                final srcSong = _pinnedGrid[sourceIdx]!;
+                                final dstSong = _pinnedGrid[index]!;
+                                _pinnedGrid[index] = srcSong;
+                                _pinnedGrid[sourceIdx] = dstSong;
+                              } else if (hasSrc && !hasDst) {
+                                // Source has a song, destination is empty — move it.
+                                final movedSong = _pinnedGrid.remove(sourceIdx)!;
+                                _pinnedGrid[index] = movedSong;
+                              } else if (!hasSrc && hasDst) {
+                                // Reverse: source was empty tap, dest has song — swap anyway.
+                                final dstSong = _pinnedGrid.remove(index)!;
+                                _pinnedGrid[sourceIdx] = dstSong;
+                              }
+
+                              setState(() => _pinSwapSourceIndex = null);
+                            } else if (!isMixEdit && hasSong) {
+                              // No source song and no swap in progress — start a swap.
+                              setState(() => _pinSwapSourceIndex = index);
                             }
-                            setState(() => _pinMode = false);
-                            _pinSourceSong = null; // clear after use
                           },
                           child: Container(
                             decoration: BoxDecoration(
-                              color: hasPinned
-                                  ? Colors.white24
-                                  : Colors.grey[850],
+                              color: isSwapSource ? Colors.white38 : (hasSong ? Colors.white24 : Colors.grey[850]),
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
-                                color: hasPinned
-                                    ? Colors.white70
-                                    : Colors.white12,
+                                color: showPinIcon ? Colors.white70 : (isSwapSource ? Colors.white70 : Colors.white12),
                                 width: 1,
                               ),
                             ),
                             child: Stack(
                               children: [
-                                if (hasPinned) ...[
+                                if (showPinIcon) ...[
                                   Positioned(
                                     top: 2,
                                     right: 2,
@@ -1376,21 +1434,23 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                       ),
                                     ),
                                   ),
-                                  Positioned(
-                                    bottom: 2,
-                                    left: 4,
-                                    child: Text(
-                                      '${index + 1}',
-                                      style: const TextStyle(
-                                        fontSize: 9,
-                                        color: Colors.white38,
-                                      ),
+                                ],
+                                Positioned(
+                                  bottom: 2,
+                                  left: 4,
+                                  child: Text(
+                                    '${index + 1}',
+                                    style: const TextStyle(
+                                      fontSize: 9,
+                                      color: Colors.white38,
                                     ),
                                   ),
-                                  // Show pinned song title centered
+                                ),
+                                // Show song title centered (if a song is in this tile)
+                                if (hasSong)
                                   Center(
                                     child: Text(
-                                      pinnedSong?.title ?? '',
+                                      song!.title,
                                       style: const TextStyle(
                                         fontSize: 10,
                                         color: Colors.white,
@@ -1400,7 +1460,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                       textAlign: TextAlign.center,
                                     ),
                                   ),
-                                ],
                               ],
                             ),
                           ),
@@ -1408,8 +1467,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    // Pin to Favorites button (only when NOT in favorites tab)
-                      if (widget.tabIndex != 3)
+                    // Pin to Favorites button (only when NOT in favorites tab and not mix edit)
+                      if (!isMixEdit && widget.tabIndex != 3)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -1436,7 +1495,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           ],
                         ),
                       // Remove from Favorites button (only when in favorites tab)
-                      if (widget.tabIndex == 3 && _pinSourceSong != null)
+                      if (!isMixEdit && widget.tabIndex == 3 && _pinSourceSong != null)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -1462,7 +1521,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           ],
                         ),
                     TextButton(
-                      onPressed: () => setState(() => _pinMode = false),
+                      onPressed: () async {
+                        if (isMixEdit) await saveEditMix();
+                        setState(() => _pinMode = false);
+                        _pinSwapSourceIndex = null;
+                      },
                       child: const Text(
                         'Cancel',
                         style: TextStyle(fontSize: 12, color: Colors.white54),
@@ -2234,144 +2297,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      }
 
      /// Mix edit overlay — shows all songs in the mix with swap capability.
-     Widget _buildMixEditOverlay() {
-       if (_editingMix == null || _editMixSongs == null) return const SizedBox.shrink();
-
-       final songCount = _editMixSongs!.length;
-
-       return Positioned.fill(
-         child: GestureDetector(
-           onTap: () => saveEditMix(),
-           child: Container(
-             color: Colors.black54,
-             child: Center(
-               child: GestureDetector(
-                 onTap: () {},
-                 child: Container(
-                   width: 360,
-                   constraints: const BoxConstraints(maxHeight: 500),
-                   padding: const EdgeInsets.all(16),
-                   decoration: BoxDecoration(
-                     color: Colors.grey[900],
-                     borderRadius: BorderRadius.circular(12),
-                     border: Border.all(color: Colors.white24),
-                   ),
-                   child: Column(
-                     mainAxisSize: MainAxisSize.min,
-                     children: [
-                       Row(
-                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                         children: [
-                           Flexible(
-                             child: Text(
-                               'Edit mix',
-                               style: const TextStyle(
-                                 fontSize: 14,
-                                 fontWeight: FontWeight.w600,
-                                 color: Colors.white,
-                               ),
-                             ),
-                           ),
-                           if (_mixSwapSourceIndex >= 0)
-                             Container(
-                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                               decoration: BoxDecoration(
-                                 color: Colors.white38,
-                                 borderRadius: BorderRadius.circular(4),
-                               ),
-                               child: Text(
-                                 "Select tile ${_mixSwapSourceIndex + 1}",
-                                 style: const TextStyle(fontSize: 9, color: Colors.white70),
-                               ),
-                             ),
-                           IconButton(
-                             icon: const Icon(Icons.close, size: 18),
-                             onPressed: () => saveEditMix(),
-                             color: Colors.white54,
-                           ),
-                         ],
-                       ),
-                       Padding(
-                         padding: const EdgeInsets.only(bottom: 4),
-                         child: Text(
-                           '$songCount songs - tap two tiles to swap',
-                           style: const TextStyle(fontSize: 10, color: Colors.white38),
-                         ),
-                       ),
-                       const SizedBox(height: 8),
-                       Expanded(
-                         child: GridView.builder(
-                           shrinkWrap: true,
-                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                             crossAxisCount: 3,
-                             childAspectRatio: 2.0,
-                             crossAxisSpacing: 6,
-                             mainAxisSpacing: 4,
-                           ),
-                           itemCount: _editMixSongs!.length,
-                           itemBuilder: (context, index) {
-                             final song = _editMixSongs![index];
-                             final isSwapSource = _mixSwapSourceIndex == index;
-                             return GestureDetector(
-                               onTap: () {
-                                 if (_mixSwapSourceIndex < 0) {
-                                   setState(() => _mixSwapSourceIndex = index);
-                                 } else if (_mixSwapSourceIndex != index) {
-                                   final temp = _editMixSongs![index];
-                                   _editMixSongs![index] = _editMixSongs![_mixSwapSourceIndex];
-                                   _editMixSongs![_mixSwapSourceIndex] = temp;
-                                   setState(() => _mixSwapSourceIndex = -1);
-                                 } else {
-                                   setState(() => _mixSwapSourceIndex = -1);
-                                 }
-                               },
-                               child: Container(
-                                 decoration: BoxDecoration(
-                                   color: isSwapSource ? Colors.white24 : Colors.grey[850],
-                                   borderRadius: BorderRadius.circular(4),
-                                   border: Border.all(
-                                     color: isSwapSource ? Colors.white70 : Colors.white12,
-                                   ),
-                                 ),
-                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                 child: Row(
-                                   mainAxisSize: MainAxisSize.min,
-                                   children: [
-                                     Flexible(
-                                       child: Text(
-                                         song.displayName,
-                                         style: const TextStyle(fontSize: 9, color: Colors.white70),
-                                         maxLines: 1,
-                                         overflow: TextOverflow.ellipsis,
-                                       ),
-                                     ),
-                                     const SizedBox(width: 2),
-                                     Container(
-                                       width: 16,
-                                       height: 16,
-                                       alignment: Alignment.center,
-                                       child: Text(
-                                         '${index + 1}',
-                                         style: const TextStyle(fontSize: 8, color: Colors.white38),
-                                       ),
-                                     ),
-                                   ],
-                                 ),
-                               ),
-                             );
-                           },
-                         ),
-                       ),
-                     ],
-                   ),
-                 ),
-               ),
-             ),
-           ),
-         ),
-       );
-     }
-
       /// Bottom player bar with controls.
   Widget _buildBottomPlayer() {
     if (_currentSong == null) return const SizedBox.shrink();
