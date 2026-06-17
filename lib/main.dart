@@ -425,9 +425,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   /// Top 9 grid — temporarily holds shuffled random set.
-  List<Song>? _shuffledTopNine;
+    List<Song>? _shuffledTopNine;
 
-  /// Shuffle the top 9 to random songs — does NOT start playback.
+    /// Temporarily holds a batch of most-played songs for the "tops" button.
+    /// When set, getGridSongs ignores pinned tiles and shows these songs.
+    List<Song>? _toppedNine;
+
+    /// Current page index for cycling through most-played batches of 9.
+    int _topsPage = 0;
+
+    /// Shuffle the top 9 to random songs — does NOT start playback.
   void shuffleTopNine(BuildContext context) {
     final rng = math.Random();
     final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
@@ -439,15 +446,67 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   /// Reset top picks back to most-played ranking.
-  void resetTopPicks() {
-    setState(() {
-      _shuffledTopNine = null;
-      _showingMix = false;
-      _mixGridSongs = null;
-    });
-  }
+    void resetTopPicks() {
+          setState(() {
+            _shuffledTopNine = null;
+            _toppedNine = null;
+            _showingMix = false;
+            _mixGridSongs = null;
+            _topsPage = 0;
+          });
+        }
 
-  // -- Pinned grid helpers --
+    /// Get a batch of N most-played songs, starting at offset = _topsPage * n.
+    List<Song> _getTopsBatch(int n) {
+      final sorted = <Song>[];
+      if (_playCounts.isEmpty) {
+        sorted.addAll(widget.allSongs);
+      } else {
+        sorted.addAll(
+          widget.allSongs.where((s) => _playCounts.containsKey(s.id)).toList()
+            ..sort(
+              (a, b) =>
+                  (_playCounts[b.id] ?? 0).compareTo(_playCounts[a.id] ?? 0),
+            ),
+        );
+      }
+
+      // Apply page offset: skip _topsPage * n songs, then take next n.
+      final offset = (_topsPage * n) % sorted.length;
+      final result = <Song>[];
+      for (int i = 0; i < n && result.length < n; i++) {
+        final idx = (offset + i) % sorted.length;
+        result.add(sorted[idx]);
+      }
+      return result.take(n).toList();
+    }
+
+    /// Cycle to the next page of most-played songs (batch of 9).
+        void showTops() {
+          setState(() {
+            _topsPage = (_topsPage + 1) % ((widget.allSongs.length + 8) ~/ 9);
+            // Store the topped batch — overrides pins, just like shuffle does.
+            _toppedNine = _getTopsBatch(9);
+            // Clear shuffle/mix so we go back to ranked tops display
+            _shuffledTopNine = null;
+            _showingMix = false;
+            _mixGridSongs = null;
+          });
+        }
+
+      /// Reset tops back to the beginning (page 0) and show that batch.
+      void resetTops() {
+        setState(() {
+          _topsPage = 0;
+          _toppedNine = _getTopsBatch(9);
+          // Clear shuffle/mix so we go back to ranked tops display
+          _shuffledTopNine = null;
+          _showingMix = false;
+          _mixGridSongs = null;
+        });
+      }
+
+    // -- Pinned grid helpers --
 
   /// Load pinned grid from persistent storage.
   Future<void> _loadPinnedGrid(List<Song> allSongs) async {
@@ -592,17 +651,20 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   /// Build the list of 9 songs for the grid display.
-  /// When shuffled (_shuffledTopNine is set), shows pure shuffle — no pins.
-  /// Otherwise, pinned tiles show their song; unpinned slots use getTopSongs fallback.
-  List<Song> getGridSongs() {
-    // If showing a mix, return that mix's songs.
-    if (_showingMix && _mixGridSongs != null) {
-      return _mixGridSongs!.take(9).toList();
-    }
-    // If in shuffle mode, show pure shuffle (pins hidden)
-    if (_shuffledTopNine != null) return _shuffledTopNine!.take(9).toList();
+    /// When shuffled (_shuffledTopNine is set), shows pure shuffle — no pins.
+    /// When topped (_toppedNine is set), shows a batch of most-played — no pins.
+    /// Otherwise, pinned tiles show their song; unpinned slots use getTopSongs fallback.
+    List<Song> getGridSongs() {
+      // If showing a mix, return that mix's songs.
+      if (_showingMix && _mixGridSongs != null) {
+        return _mixGridSongs!.take(9).toList();
+      }
+      // If in shuffle mode, show pure shuffle (pins hidden)
+      if (_shuffledTopNine != null) return _shuffledTopNine!.take(9).toList();
+      // If topped, show the most-played batch (pins hidden)
+      if (_toppedNine != null) return _toppedNine!.take(9).toList();
 
-    final base = getTopSongs(9);
+      final base = getTopSongs(9);
     final result = <Song>[];
     int baseIndex = 0;
 
@@ -994,6 +1056,41 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // "Tops" button — tap cycles most-played page; long-press/right-click resets to beginning
+                                                                        GestureDetector(
+                                                                          onSecondaryTap: () {
+                                                                            resetTops();
+                                                                          },
+                                                                          onLongPress: () {
+                                                                            resetTops();
+                                                                          },
+                                                  child: TextButton.icon(
+                                                    onPressed: () {
+                                                      showTops();
+                                                    },
+                                                    icon: const Icon(
+                                                      Icons.trending_up,
+                                                      size: 16,
+                                                      color: Colors.white54,
+                                                    ),
+                                                    label: const Text(
+                                                      'tops',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors.white54,
+                                                      ),
+                                                    ),
+                                                    style: TextButton.styleFrom(
+                                                      padding: const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 2,
+                                                      ),
+                                                      minimumSize: const Size(0, 28),
+                                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                    ),
+                                                  ),
+                                                ),
+                        const SizedBox(width: 4),
                         // "Mix" button — tap prompts to name/save current grid as a mix; long-press/right-click opens mixes tab
                          GestureDetector(
                            onSecondaryTap: () {
