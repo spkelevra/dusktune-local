@@ -2738,6 +2738,15 @@ class _SearchBarDelegate extends SliverPersistentHeaderDelegate {
               borderSide: const BorderSide(color: Colors.white38),
             ),
             prefixIcon: const Icon(Icons.search, color: Colors.white54),
+            suffixIcon: controller.text.trim().isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white54),
+                    onPressed: () {
+                      controller.clear();
+                      onChanged('');
+                    },
+                  )
+                : null,
             contentPadding: const EdgeInsets.symmetric(vertical: 12),
           ),
           onChanged: onChanged,
