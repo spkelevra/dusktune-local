@@ -22,6 +22,8 @@ A minimalist dark-mode local music player for Android, Windows, and macOS.
 
 **Grid area:** Swipe right → shuffle. Swipe left → restore pinned grid (same as tapping "the grid").
 
+**Library, Favorites, and Mixes tabs:** Swipe left → go back to home page. Swipe right → navigate to the next tab sequentially (Library → Mixes → Favorites). Swiping right from Favorites stays on that tab; Settings is not reachable via swipe.
+
 **Grid tiles:** Long-press / right-click a tile → enter pin mode for that song. Tap a tile in pin mode → place it in that position.
 
 **Song list tiles (Library, Favorites, Mixes):** Long-press / right-click → open context menu with pin/remove options.
