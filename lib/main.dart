@@ -2005,7 +2005,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         // Alphabet index bar on the right edge (only show when not searching)
         if (!hasSearchQuery)
           Positioned(
-            top: 0,
+            top: 68, // Start below the search bar area, inside black bar separator
             bottom: 80, // Leave room for player
             right: 0,
             child: _buildAlphabetIndex(),
