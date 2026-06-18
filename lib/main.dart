@@ -142,8 +142,10 @@ class _AppRootState extends State<AppRoot> {
       // The snackbar is shown by the caller; we just return here
       return;
     } else {
-      // Mobile: close app immediately
-      SystemNavigator.pop();
+      // Mobile: close app safely — try SystemNavigator first, ignore if it fails.
+      try {
+        SystemNavigator.pop();
+      } catch (_) {}
     }
   }
 
@@ -154,7 +156,9 @@ class _AppRootState extends State<AppRoot> {
     if (_isDesktop) {
       return; // Desktop: caller handles snackbar with restart message
     } else {
-      SystemNavigator.pop();
+      try {
+        SystemNavigator.pop();
+      } catch (_) {}
     }
   }
 
@@ -632,7 +636,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           for (final id in songIds) {
             try {
               songs.add(widget.allSongs.firstWhere((s) => s.id == id));
-            } catch (_) {}
+            } catch (e) { debugPrint("Mix song ID not found in library: $id"); }
           }
           setState(() {
             _editingMix = mix;

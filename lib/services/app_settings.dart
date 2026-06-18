@@ -134,8 +134,4 @@ class AppSettings {
     await PersistentStorage.clearAllData();
   }
 
-  /// Get the path to the persistent storage directory (for debugging).
-  static Future<String?> getDataPath() async {
-    return PersistentStorage.getDataPath();
   }
-}

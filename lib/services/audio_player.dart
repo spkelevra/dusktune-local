@@ -14,10 +14,6 @@ class DuskAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
-  /// Track current song for reliable playback.
-  // ignore: unused_field
-  Song? _currentSong;
-
   /// Callback invoked when a track finishes playing — the UI uses this to decide what plays next.
   void Function()? onTrackComplete;
 
@@ -128,7 +124,6 @@ class DuskAudioHandler extends BaseAudioHandler
     );
 
     try {
-      _currentSong = song;
       // Use AudioSource.file for local files — better codec support (WMA, etc.)
       await _player.setAudioSource(
         AudioSource.file(song.uri, tag: mediaItem),
@@ -139,7 +134,6 @@ class DuskAudioHandler extends BaseAudioHandler
       debugPrint('DuskAudioHandler.playSong: success for ${song.title}');
     } catch (e) {
       debugPrint('DuskAudioHandler.playSong FAILED for ${song.title}: $e');
-      rethrow;
     }
   }
 
@@ -220,7 +214,7 @@ class DesktopAudioHandler {
         if (pos != null) {
           _positionController.add(pos);
         }
-      } catch (_) {}
+      } catch (e) { debugPrint("DesktopAudioHandler position poll error (ignored): $e"); }
     });
   }
 
@@ -249,7 +243,6 @@ class DesktopAudioHandler {
       debugPrint('DesktopAudioHandler.playSong: success for ${song.title}');
     } catch (e) {
       debugPrint('DesktopAudioHandler.playSong FAILED for ${song.title}: $e');
-      rethrow;
     }
   }
 

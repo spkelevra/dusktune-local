@@ -36,12 +36,12 @@ class PersistentStorage {
   }
 
   static Future<void> _doEnsurePermission() async {
-    final status = Permission.manageExternalStorage.status;
-    if (!await status.isGranted) {
-      await Permission.manageExternalStorage.request();
+      final status = Permission.manageExternalStorage.status;
+      if (!await status.isGranted) {
+        await Permission.manageExternalStorage.request();
+      }
+      _permissionGranted = await Permission.manageExternalStorage.status.isGranted;
     }
-    _permissionGranted = true;
-  }
   
   /// File names for each data category.
   static const String _kAppName = 'app_name.json';
@@ -403,7 +403,7 @@ class PersistentStorage {
         try {
           final path = await _filePath(_kRescanFlag);
           await File(path).delete();
-        } catch (_) {}
+        } catch (e) { debugPrint("PersistentStorage rescan flag delete error (ignored): $e"); }
       }
     }
     return flagged;
@@ -448,13 +448,4 @@ class PersistentStorage {
     _dataDir = null; // Reset cached directory
   }
 
-  /// Get the path to the persistent storage directory (for debugging).
-  static Future<String?> getDataPath() async {
-    try {
-      final dir = await _ensureDataDir();
-      return dir.path;
-    } catch (_) {
-      return null;
-    }
   }
-}

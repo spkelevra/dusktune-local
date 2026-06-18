@@ -195,7 +195,7 @@ class ArtworkExtractor {
             return base64Decode(base64Str);
           }
         }
-      } catch (_) {}
+      } catch (e) { debugPrint("ArtworkExtractor ID3 parse error (ignored): $e"); }
 
       return null;
     }
@@ -207,78 +207,4 @@ class ArtworkExtractor {
     return file.readAsBytesSync().take(readLength).toList();
   }
 
-  /// Re-extract artwork for a single song (e.g. after enabling the feature).
-  static Future<Song?> extractForSong(Song song) async {
-    final showArt = await AppSettings.loadShowAlbumArt();
-    if (!showArt) return null;
-
-    if (Platform.isAndroid) {
-      return _extractSingleAndroid(song);
-    } else {
-      return _extractSingleDesktop(song);
-    }
-  }
-
-  static Future<Song> _extractSingleAndroid(Song song) async {
-    // Check cache first
-    if (await AppSettings.hasArtwork(song.id)) {
-      final cached = await AppSettings.loadArtwork(song.id);
-      if (cached != null && cached.isNotEmpty) {
-        return song.copyWith(artworkBytes: Uint8List.fromList(cached));
-      }
-    }
-
-    try {
-      final audioQuery = OnAudioQuery();
-      final artwork = await audioQuery.queryArtwork(
-        song.id,
-        ArtworkType.AUDIO,
-        format: ArtworkFormat.JPEG,
-        size: 200,
-        quality: 50,
-      );
-
-      if (artwork != null && artwork.isNotEmpty) {
-        await AppSettings.saveArtwork(song.id, artwork);
-        return song.copyWith(artworkBytes: Uint8List.fromList(artwork));
-      }
-    } catch (e) {
-      debugPrint('ArtworkExtractor: single extract failed for ${song.id}: $e');
-    }
-
-    return song;
-  }
-
-  static Future<Song> _extractSingleDesktop(Song song) async {
-      // Check cache first
-      if (await AppSettings.hasArtwork(song.id)) {
-        final cached = await AppSettings.loadArtwork(song.id);
-        if (cached != null && cached.isNotEmpty) {
-          return song.copyWith(artworkBytes: Uint8List.fromList(cached));
-        }
-      }
-
-      final ext = song.uri.split('.').last.toLowerCase();
-      if (ext != 'mp3') return song;
-
-      try {
-        final file = File(song.uri);
-        if (!await file.exists()) return song;
-
-        // Use async isolate-based extraction with timeout
-        final artworkBytes = await _extractArtworkFromMP3(file).timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => null,
-        );
-
-        if (artworkBytes != null) {
-          await AppSettings.saveArtwork(song.id, artworkBytes);
-          return song.copyWith(artworkBytes: Uint8List.fromList(artworkBytes));
-        }
-      } catch (e) {
-        debugPrint('ArtworkExtractor: single desktop extract failed for ${song.id}: $e');
-      }
-
-      return song;
-      }
-      }
+}
