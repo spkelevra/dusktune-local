@@ -220,8 +220,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   String _appName = 'dusktune';
   Song? _currentSong;
   bool _isPlaying = false;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
+    Duration _position = Duration.zero;
+    Duration _duration = Duration.zero;
+    double _volume = 1.0;
   // Play count tracking for "Top 9"
   final Map<int, int> _playCounts = {};
   // Last-played order tracking (most recent first)
@@ -2427,7 +2428,33 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
+
+                          // Volume slider (desktop only)
+                          if (_isDesktop) ...[
+                            SizedBox(
+                              width: 80,
+                              child: SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  trackHeight: 2,
+                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
+                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
+                                  activeTrackColor: Colors.white38,
+                                  inactiveTrackColor: Colors.transparent,
+                                  thumbColor: Colors.white54,
+                                  overlayColor: Colors.white.withValues(alpha: 0.1),
+                                ),
+                                child: Slider(
+                                  value: _volume.clamp(0.0, 1.0),
+                                  onChanged: (v) {
+                                    setState(() => _volume = v);
+                                    AudioPlayerService.setVolume(v);
+                                  },
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(width: 8),
+                          ],
                           Text(
                             '${fmt(_position)} / ${fmt(_duration)}',
                             style: const TextStyle(

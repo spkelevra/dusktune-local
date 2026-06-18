@@ -267,6 +267,11 @@ class DesktopAudioHandler {
   }
 
   bool get isPlaying => _playing;
+
+  Future<void> setVolume(double v) async {
+    await _player.setVolume(v.clamp(0.0, 1.0));
+  }
+
   Stream<bool> get playingStateStream => _playingController.stream;
   Stream<Duration> get positionStream => _positionController.stream;
   Stream<Duration?> get durationStream => _durationController.stream;
@@ -391,6 +396,16 @@ class AudioPlayerService {
       await _desktopHandler?.seek(position);
     } else {
       await _handler?.seek(position);
+    }
+  }
+
+  /// Set playback volume (0.0–1.0).
+  static Future<void> setVolume(double v) async {
+    if (_isDesktop) {
+      await _desktopHandler?.setVolume(v);
+    } else {
+      final h = _handler;
+      if (h != null) await h.player.setVolume(v.clamp(0.0, 1.0));
     }
   }
 
