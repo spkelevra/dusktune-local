@@ -820,9 +820,20 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                      index: widget.tabIndex,
                      children: [
                        _buildHomeTab(),
-                       _buildLibraryTab(),
-                       _buildMixesTab(),
-                       _buildFavoritesTab(),
+                       _SwipeableTab(
+                         onLeft: () => widget.onTabChanged(0), // Library → Home
+                         onRight: () => widget.onTabChanged(2), // Library → Mixes
+                         child: _buildLibraryTab(),
+                       ),
+                       _SwipeableTab(
+                         onLeft: () => widget.onTabChanged(0), // Mixes → Home
+                         onRight: () => widget.onTabChanged(3), // Mixes → Favorites
+                         child: _buildMixesTab(),
+                       ),
+                       _SwipeableTab(
+                         onLeft: () => widget.onTabChanged(0), // Favorites → Home
+                         child: _buildFavoritesTab(),
+                       ),
                          const _SettingsContent(),
                        ],
                    ),
@@ -2540,6 +2551,37 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Search content widget.
+class _SwipeableTab extends StatelessWidget {
+  final VoidCallback onLeft;   // swipe left → home
+  final VoidCallback? onRight; // swipe right → next tab (null if no next)
+  final Widget child;
+
+  const _SwipeableTab({
+    required this.onLeft,
+    this.onRight,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onHorizontalDragEnd: (details) {
+        if (details.primaryVelocity != null && details.primaryVelocity!.abs() > 200) {
+          if (details.primaryVelocity! > 0) {
+            // Swipe right → next tab
+            onRight?.call();
+          } else {
+            // Swipe left → home
+            onLeft();
+          }
+        }
+      },
+      child: child,
     );
   }
 }
