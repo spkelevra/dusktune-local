@@ -254,6 +254,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Light detection setting — persisted toggle, defaults true on Android
   bool _lightDetectionEnabled = true;
 
+  /// Volume fade-out timer (hold button → progressive fade, tap → slow fade to silence)
+  Timer? _fadeDownTimer;
+  double _fadeBaseVolume = 1.0;
+  bool _fadingActive = false;
+
   // Stream subscription for ambient light sensor updates
   late final AmbientLightService _ambientLightService;
 
@@ -392,6 +397,105 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     });
   }
 
+  // ─── Volume Fade Effects (Android only) ──────────────────
+
+  /// Whether a tap-fade is currently in progress and should be toggled off.
+  bool _fadeTapActive = false;
+
+  /// If true, this gesture was a hold — onTap must skip it.
+  bool _wasHoldGesture = false;
+
+  /// Read current volume from the just_audio player on Android.
+  Future<double> _getCurrentVolume() async {
+    try {
+      return (await AudioPlayerService.handler?.player.volumeStream.first) ?? 1.0;
+    } catch (_) {
+      return 1.0;
+    }
+  }
+
+  /// Finger pressed down — remember current volume, start fading while held.
+  Future<void> _onEffectsFingerDown() async {
+    if (_isDesktop || _fadingActive) return;
+    _fadeBaseVolume = await _getCurrentVolume();
+    setState(() => _wasHoldGesture = false);
+    setState(() => _fadingActive = true);
+
+    // Lower volume by ~12% every 80 ms while finger is held down.
+    const step = Duration(milliseconds: 80);
+    const decrement = 0.12;
+
+    _fadeDownTimer?.cancel();
+    double v = _fadeBaseVolume;
+    _fadeDownTimer = Timer.periodic(step, (timer) async {
+      if (!_fadingActive || !mounted) { timer.cancel(); return; }
+      // Mark as hold the moment any fading happens.
+      setState(() => _wasHoldGesture = true);
+      v -= decrement;
+      if (v < 0.02) v = 0.02; // floor — not fully silent, still audible
+      await AudioPlayerService.setVolume(v);
+    });
+  }
+
+  /// Finger lifted — stop fade timer and restore original volume instantly.
+  Future<void> _onEffectsFingerUp() async {
+    if (_isDesktop) return;
+    _fadeDownTimer?.cancel();
+    _fadeDownTimer = null;
+    setState(() => _fadingActive = false);
+
+    // Restore to pre-fade volume immediately (but only if it was a hold)
+    if (_wasHoldGesture) {
+      await AudioPlayerService.setVolume(_fadeBaseVolume);
+    }
+  }
+
+  /// Quick tap — toggle between fade-down (to silence) and restore original.
+  Future<void> _onEffectsTap() async {
+    if (_isDesktop || _wasHoldGesture) return; // hold already handled this gesture
+    if (!_fadeTapActive) {
+      // Fade down smoothly to silence over ~3 seconds
+      double v = await _getCurrentVolume();
+      const step = Duration(milliseconds: 80);
+      final totalSteps = (3000 / 80).ceil();
+      final decrement = v / totalSteps;
+
+      for (int i = 0; i < totalSteps; i++) {
+        if (!mounted) break;
+        v -= decrement;
+        await AudioPlayerService.setVolume(v);
+        setState(() => _volume = v);
+        await Future.delayed(step);
+      }
+    } else {
+      // Restore — fade back up smoothly over ~1.5 seconds
+      double target = 1.0;
+      double current = await _getCurrentVolume();
+      const step = Duration(milliseconds: 60);
+      final totalSteps = (1500 / 60).ceil();
+      if ((target - current) > 0.01) {
+        final increment = (target - current) / totalSteps;
+        for (int i = 0; i < totalSteps; i++) {
+          if (!mounted) break;
+          current += increment;
+          await AudioPlayerService.setVolume(current);
+          setState(() => _volume = current);
+          await Future.delayed(step);
+        }
+      }
+    }
+    setState(() => _fadeTapActive = !_fadeTapActive);
+  }
+
+  /// Restore volume to 1.0 (called when a new track starts).
+  void _resetFadeState() {
+    AudioPlayerService.setVolume(1.0);
+    _fadeTapActive = false;
+    _fadingActive = false;
+    _wasHoldGesture = false;
+    _fadeDownTimer?.cancel();
+  }
+
   Future<void> _loadSettings() async {
      final appName = await AppSettings.loadAppName();
      final playCounts = await AppSettings.loadPlayCounts();
@@ -441,6 +545,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         _ambientLightService.stop();
       } catch (_) {}
     }
+    // Cancel volume fade timer
+    _fadeDownTimer?.cancel();
     super.dispose();
   }
 
@@ -462,6 +568,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// If omitted, default to alphabetical (allSongs).
   void playSong(Song song, {List<Song>? queue}) async {
     _isTransitioning = true;
+    // Reset fade state so new track starts at full volume
+    if (!_isDesktop) {
+      _resetFadeState();
+    }
     // Track play count and recent order
     setState(() {
       _playCounts[song.id] = (_playCounts[song.id] ?? 0) + 1;
@@ -2610,6 +2720,33 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 ),
 
                 const SizedBox(width: 8),
+
+                // Volume fade button (Android only): tap = slow fade-down/restore toggle, hold = progressive fade while held
+                if (!_isDesktop) ...[
+                  GestureDetector(
+                    onTap: _onEffectsTap,
+                    onTapDown: (_) => _onEffectsFingerDown(),
+                    onTapUp: (_) => _onEffectsFingerUp(),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: (_fadingActive || _fadeTapActive)
+                            ? Colors.amber.withValues(alpha: 0.15)
+                            : Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.graphic_eq_rounded,
+                        size: 24,
+                        color: (_fadingActive || _fadeTapActive) ? Colors.amber[300]! : Colors.white54,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+                ],
 
                 // Shuffle All toggle button
                 IconButton(
