@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:mpv_audio_kit/mpv_audio_kit.dart';
 import '../models/song.dart';
@@ -16,6 +17,10 @@ class MpvAudioHandler {
 
   /// Current volume level (0.0–1.0).
   double _currentVolume = 1.0;
+
+  /// Current filter control value (-1..+1), persisted so we can reapply it
+  /// after a track change (mpv clears DSP chain on file load).
+  double _filterControlValue = 0.0;
 
   /// Track complete subscription.
   StreamSubscription<MpvFileEndedEvent>? _endFileSub;
@@ -56,6 +61,10 @@ class MpvAudioHandler {
     _isTransitioning = true;
     try {
       await _player.open(media, play: true);
+      // Re-apply persistent filter immediately after open — mpv clears DSP on load.
+      if (_filterControlValue.abs() >= 0.02) {
+        await setFilterControl(_filterControlValue);
+      }
       // Give mpv a brief settle window after open so the old file's EOF
       // (if it arrives late) doesn't trigger auto-advance.
       await Future.delayed(const Duration(milliseconds: 200));
@@ -245,6 +254,47 @@ class MpvAudioHandler {
     await _player.updateAudioEffects((effects) => effects.copyWith(highpass: null));
   }
 
+  /// Apply a combined filter control value in the range -1.0 (strong LPF) through
+  /// +1.0 (strong HPF), with 0.0 meaning no filter. Keeps both filters enabled at
+  /// all times with neutral frequencies, so only the cutoff moves — never an abrupt
+  /// enable/disable toggle. Uses updateAudioEffects for glitch-free af-command updates.
+  Future<void> setFilterControl(double value) async {
+    // Clamp to [-1, +1]
+    final v = value.clamp(-1.0, 1.0);
+
+    _filterControlValue = v; // persist for reapply on track change
+
+    if (v.abs() < 0.02) {
+      // Near neutral — restore both filters to pass-through frequencies
+      return await _player.updateAudioEffects((effects) => effects.copyWith(
+        lowpass: const LowpassSettings(enabled: true, f: 20000.0),
+        highpass: const HighpassSettings(enabled: true, f: 20.0),
+      ));
+    } else if (v < 0) {
+      // Negative → LPF gets active. Use a logarithmic mapping so the effect builds
+      // gradually and peaks at something musically meaningful (~100 Hz).
+      // t goes from 0 (just off center) to 1 (full left).
+      final t = (-v).clamp(0.02, 1.0);
+      // Log mapping: f = 20000 * pow(ratio, t) where ratio = 100/20000 ≈ 0.005
+      final lpCutoff = 20000.0 * pow(0.005, t); // ~4 kHz at center → ~100 Hz at full left
+      debugPrint('MpvAudioHandler: filter control $v → LPF @ ${lpCutoff.toStringAsFixed(0)} Hz');
+      await _player.updateAudioEffects((effects) => effects.copyWith(
+        lowpass: LowpassSettings(enabled: true, f: lpCutoff),
+        highpass: const HighpassSettings(enabled: true, f: 20.0),
+      ));
+    } else {
+      // Positive → HPF gets active. Same logarithmic mapping on the other side.
+      final t = v.clamp(0.02, 1.0);
+      // Log mapping: f = 20 * pow(ratio, t) where ratio = 8000/20 = 400
+      final hpCutoff = 20.0 * pow(400.0, t); // ~5 kHz at center → ~8 kHz at full right
+      debugPrint('MpvAudioHandler: filter control $v → HPF @ ${hpCutoff.toStringAsFixed(0)} Hz');
+      await _player.updateAudioEffects((effects) => effects.copyWith(
+        lowpass: const LowpassSettings(enabled: true, f: 20000.0),
+        highpass: HighpassSettings(enabled: true, f: hpCutoff.clamp(10.0, 20000.0)),
+      ));
+    }
+  }
+
   /// Remove all audio filters (reset DSP chain).
   Future<void> clearFilters() async {
     debugPrint('MpvAudioHandler: clearing audio effects');
@@ -394,6 +444,11 @@ class AudioPlayerService {
   /// Clear all audio filters.
   static Future<void> clearFilters() async {
     await _handler?.clearFilters();
+  }
+
+  /// Apply a combined filter control (-1 = strong LPF, +1 = strong HPF, 0 = none).
+  static Future<void> setFilterControl(double value) async {
+    await _handler?.setFilterControl(value);
   }
 
   void dispose() {

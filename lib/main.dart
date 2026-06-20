@@ -254,12 +254,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Light detection setting — persisted toggle, defaults true on Android
   bool _lightDetectionEnabled = true;
 
-  /// Filter effect state — 'lowpass', 'highpass', or null (none)
-  String? _activeFilter; // 'lowpass' or 'highpass' or null
-  Timer? _holdTimer;
-
-  /// If true, this gesture was a hold — onTap must skip it.
-  bool _wasHoldGesture = false;
+  /// Filter control state in range [-1, +1]: negative = LPF, positive = HPF, ~0 = none.
+  double _filterControl = 0.0;
   late final AmbientLightService _ambientLightService;
 
   // Pin mode: overlay for assigning current song to a tile.
@@ -397,69 +393,26 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     });
   }
 
-  // ─── Audio Filter Effects (Android only) ──────────────────────
-  // Tap: engage LPF gradually → tap again to remove quickly → tap again for HPF → tap again to remove
-  // Hold: engage HPF gradually while held
+  // ─── Filter Control (Android only) — continuous slider [-1, +1] ──
 
-  /// Quick tap — toggle filter cycle.
-  Future<void> _onEffectsTap() async {
-    if (_isDesktop || _wasHoldGesture) return; // hold already handled this gesture
-
-    switch (_activeFilter) {
-      case null:
-        // Engage low-pass filter gradually (~2 seconds from full to 400 Hz)
-        await AudioPlayerService.rampLowPassFilter(400, const Duration(seconds: 2));
-        setState(() => _activeFilter = 'lowpass');
-
-      case 'lowpass':
-        // Remove LPF quickly (~1 second)
-        await AudioPlayerService.removeLowPassFilter(const Duration(milliseconds: 800));
-        setState(() => _activeFilter = null);
-
-      case 'highpass':
-        // Remove HPF quickly (~1 second) then cycle back to null so next tap goes to LPF
-        await AudioPlayerService.removeHighPassFilter(const Duration(milliseconds: 800));
-        setState(() => _activeFilter = null);
-
-      default:
-        break;
-    }
+  /// Apply filter control change from the UI slider.
+  Future<void> _onFilterChanged(double value) async {
+    if (_isDesktop) return;
+    setState(() => _filterControl = value);
+    await AudioPlayerService.setFilterControl(value);
   }
 
-  /// Finger pressed down — after 400ms, treat as hold and ramp HPF while held.
-  Future<void> _onEffectsFingerDown() async {
+  /// Reset filter to neutral when the 'Filter' label is tapped.
+  Future<void> _resetFilter() async {
     if (_isDesktop) return;
-    setState(() => _wasHoldGesture = false);
-
-    const threshold = Duration(milliseconds: 400);
-    _holdTimer?.cancel();
-    _holdTimer = Timer(threshold, () async {
-      if (!mounted) return;
-      // Mark as hold so the subsequent onTap is skipped
-      setState(() => _wasHoldGesture = true);
-
-      // If LPF was active, clear it first quickly
-      if (_activeFilter == 'lowpass') {
-        await AudioPlayerService.removeLowPassFilter(const Duration(milliseconds: 400));
-      }
-
-      // Ramp HPF gradually (~2 seconds from 20 Hz to 800 Hz)
-      setState(() => _activeFilter = 'highpass');
-      await AudioPlayerService.rampHighPassFilter(800, const Duration(seconds: 2));
-    });
-  }
-
-  /// Finger lifted — cancel hold timer if not yet triggered.
-  Future<void> _onEffectsFingerUp() async {
-    if (_isDesktop) return;
-    _holdTimer?.cancel();
-    _holdTimer = null;
+    await AudioPlayerService.clearFilters();
+    setState(() => _filterControl = 0.0);
   }
 
   /// Reset filter state when a new track starts (clear filters).
+  /// No-op now — user manages filter via slider. Kept for potential future use.
   void _resetFadeState() {
-    AudioPlayerService.clearFilters();
-    setState(() => _activeFilter = null);
+    // Intentionally no-op: filter persists across tracks.
   }
 
   Future<void> _loadSettings() async {
@@ -511,8 +464,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         _ambientLightService.stop();
       } catch (_) {}
     }
-    // Cancel filter hold timer
-    _holdTimer?.cancel();
     super.dispose();
   }
 
@@ -2595,6 +2546,52 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             ),
                           ),
 
+                          // Filter bar (desktop only): left = LPF, center = none, right = HPF; tap "Filter" to reset.
+                          if (_isDesktop) ...[
+                            Row(
+                              children: [
+                                // Reset-on-tap label with generous hit area
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  child: GestureDetector(
+                                    onTap: _resetFilter,
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Text(
+                                      'Filter',
+                                      style: TextStyle(
+                                        color: _filterControl.abs() > 0.02 ? Colors.white : Colors.white54,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 70,
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      trackHeight: 2,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 3),
+                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
+                                      activeTrackColor: Colors.white70,
+                                      inactiveTrackColor: Colors.transparent,
+                                      thumbColor: Colors.white,
+                                      overlayColor: Colors.white.withValues(alpha: 0.12),
+                                    ),
+                                    child: Slider(
+                                      value: _filterControl.clamp(-1.0, 1.0),
+                                      min: -1.0,
+                                      max: 1.0,
+                                      onChanged: (v) => _onFilterChanged(v),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            const SizedBox(height: 4),
+                          ],
+
                           // Volume slider (desktop only)
                           if (_isDesktop) ...[
                             SizedBox(
@@ -2633,6 +2630,50 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     ],
                   ),
                 ),
+
+                const SizedBox(width: 8),
+
+                // Filter slider (Android only, desktop below): left = LPF, center = none, right = HPF; tap "Filter" to reset.
+                if (!_isDesktop) ...[
+                  // Reset-on-tap label with generous hit area
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: GestureDetector(
+                      onTap: _resetFilter,
+                      behavior: HitTestBehavior.opaque,
+                      child: Text(
+                        'Filter',
+                        style: TextStyle(
+                          color: _filterControl.abs() > 0.02 ? Colors.white : Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 70,
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 2,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 7),
+                        activeTrackColor: Colors.white70,
+                        inactiveTrackColor: Colors.transparent,
+                        thumbColor: Colors.white,
+                        overlayColor: Colors.white.withValues(alpha: 0.12),
+                      ),
+                      child: Slider(
+                        value: _filterControl.clamp(-1.0, 1.0),
+                        min: -1.0,
+                        max: 1.0,
+                        onChanged: (v) => _onFilterChanged(v),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+                ],
 
                 // Skip previous
                 IconButton(
@@ -2684,35 +2725,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                 ),
-
-                const SizedBox(width: 8),
-
-                // Volume fade button (Android only): tap = slow fade-down/restore toggle, hold = progressive fade while held
-                if (!_isDesktop) ...[
-                  GestureDetector(
-                    onTap: _onEffectsTap,
-                    onTapDown: (_) => _onEffectsFingerDown(),
-                    onTapUp: (_) => _onEffectsFingerUp(),
-                    child: Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: (_activeFilter != null || _wasHoldGesture)
-                            ? Colors.amber.withValues(alpha: 0.15)
-                            : Colors.white.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        Icons.graphic_eq_rounded,
-                        size: 24,
-                        color: (_activeFilter != null || _wasHoldGesture) ? Colors.amber[300]! : Colors.white54,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(width: 8),
-                ],
 
                 // Shuffle All toggle button
                 IconButton(
