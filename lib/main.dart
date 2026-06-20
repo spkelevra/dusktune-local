@@ -395,11 +395,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   // ─── Filter Control (Android only) — continuous slider [-1, +1] ──
 
-  /// Apply filter control change from the UI slider.
-  Future<void> _onFilterChanged(double value) async {
+  /// Apply filter control change from the UI slider — fire-and-forget for lowest latency.
+  void _onFilterChanged(double value) {
     if (_isDesktop) return;
-    setState(() => _filterControl = value);
-    await AudioPlayerService.setFilterControl(value);
+    _filterControl = value;
+    // Don't await — let each tick run concurrently so drag feels immediate.
+    AudioPlayerService.setFilterControl(value);
   }
 
   /// Reset filter to neutral when the 'Filter' label is tapped.
@@ -2570,9 +2571,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                   width: 70,
                                   child: SliderTheme(
                                     data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 2,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 3),
-                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
+                                      trackHeight: 6,
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                                       activeTrackColor: Colors.white70,
                                       inactiveTrackColor: Colors.transparent,
                                       thumbColor: Colors.white,
@@ -2598,9 +2599,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                               width: 80,
                               child: SliderTheme(
                                 data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 2,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
-                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
+                                  trackHeight: 6,
+                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                                   activeTrackColor: Colors.white38,
                                   inactiveTrackColor: Colors.transparent,
                                   thumbColor: Colors.white54,
@@ -2655,9 +2656,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     width: 70,
                     child: SliderTheme(
                       data: SliderTheme.of(context).copyWith(
-                        trackHeight: 2,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 7),
+                        trackHeight: 6,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                         activeTrackColor: Colors.white70,
                         inactiveTrackColor: Colors.transparent,
                         thumbColor: Colors.white,
