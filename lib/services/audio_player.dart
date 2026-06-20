@@ -31,6 +31,14 @@ class MpvAudioHandler {
   bool _isTransitioning = false;
 
   MpvAudioHandler() {
+    // Pre-initialize DSP chain with pass-through filters so the pipeline is
+    // always present — prevents first-track glitch when setFilterControl runs
+    // on an empty chain after open().
+    _player.setAudioEffects(AudioEffects(
+      lowpass: const LowpassSettings(enabled: true, f: 20000.0),
+      highpass: const HighpassSettings(enabled: true, f: 20.0),
+    ));
+
     // Listen for track completion — only fire callback when the loaded file
     // actually plays through to its end (not when replaced mid-load).
     _endFileSub = _player.stream.endFile.listen((event) {
@@ -61,10 +69,6 @@ class MpvAudioHandler {
     _isTransitioning = true;
     try {
       await _player.open(media, play: true);
-      // Re-apply persistent filter immediately after open — mpv clears DSP on load.
-      if (_filterControlValue.abs() >= 0.02) {
-        await setFilterControl(_filterControlValue);
-      }
       // Give mpv a brief settle window after open so the old file's EOF
       // (if it arrives late) doesn't trigger auto-advance.
       await Future.delayed(const Duration(milliseconds: 200));
