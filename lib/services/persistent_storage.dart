@@ -50,6 +50,7 @@ class PersistentStorage {
   static const String _kMixes = 'mixes.json';
   static const String _kFavorites = 'favorites.json';
   static const String _kShowAlbumArt = 'show_album_art.json';
+  static const String _kLightDetection = 'light_detection.json';
 
   /// Subdirectory for cached album artwork thumbnails.
   static const String _artworkSubDir = 'artwork';
@@ -318,6 +319,20 @@ class PersistentStorage {
     }
 
     await _writeJson(_kShowAlbumArt, enabled);
+  }
+
+  /// Load light detection (ALS) preference. Defaults to true (enabled).
+  static Future<bool> loadLightDetection() async {
+    if (!Platform.isAndroid) return false;
+    final data = await _readJsonAsync(_kLightDetection);
+    if (data is bool) return data;
+    return false; // Default: off
+  }
+
+  /// Save light detection (ALS) preference.
+  static Future<void> saveLightDetection(bool enabled) async {
+    if (!Platform.isAndroid) return;
+    await _writeJson(_kLightDetection, enabled);
   }
 
   // -- Artwork cache helpers --

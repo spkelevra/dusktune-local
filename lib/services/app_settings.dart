@@ -92,6 +92,16 @@ class AppSettings {
     await PersistentStorage.saveShowAlbumArt(enabled);
   }
 
+  /// Load light detection (ALS) preference. Defaults to true.
+  static Future<bool> loadLightDetection() async {
+    return PersistentStorage.loadLightDetection();
+  }
+
+  /// Save light detection (ALS) preference.
+  static Future<void> saveLightDetection(bool enabled) async {
+    await PersistentStorage.saveLightDetection(enabled);
+  }
+
   // -- Artwork cache --
 
   /// Get cached artwork for a song, or null if not available.

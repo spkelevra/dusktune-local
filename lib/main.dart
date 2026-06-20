@@ -7,10 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app_theme.dart';
 import 'models/song.dart';
+import 'services/artwork_extractor.dart';
 import 'services/audio_player.dart';
 import 'services/music_library.dart';
 import 'services/music_scanner.dart' as desktop_scanner;
 import 'services/app_settings.dart';
+import 'services/ambient_light_service.dart';
 import 'widgets/tile_pattern.dart';
 import 'dart:async';
 
@@ -246,6 +248,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Album art display toggle
   bool _showAlbumArt = false;
 
+  // Sunlight factor from ALS — drives tile background brightness (0.0–1.0)
+  double _sunlightFactor = 0.0;
+
+  // Light detection setting — persisted toggle, defaults true on Android
+  bool _lightDetectionEnabled = true;
+
+  // Stream subscription for ambient light sensor updates
+  late final AmbientLightService _ambientLightService;
+
   // Pin mode: overlay for assigning current song to a tile.
   bool _pinMode = false;
     int? _pinSwapSourceIndex; // source tile for swap in pin mode overlay
@@ -298,7 +309,69 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     // Load persisted settings and favorites
     _loadSettings();
     _loadFavoritesAsync();
+
+    // Start ambient light sensor (Android only — gracefully no-ops on desktop)
+    if (!_isDesktop) {
+      AppSettings.loadLightDetection().then((enabled) async {
+        if (!mounted) return;
+        try {
+          _lightDetectionEnabled = enabled;
+          setState(() {}); // trigger UI with correct initial toggle state
+          _ambientLightService = AmbientLightService();
+
+          if (enabled) {
+            _startALS();
+          } else {
+            print('ALS disabled by user');
+          }
+        } catch (e) {
+          print('ALS init failed: $e');
+        }
+      });
+    }
   }
+
+  /// Start ALS and subscribe to its stream.
+  void _startALS() {
+    _ambientLightService.start().then((_) {
+      final factor = _ambientLightService.currentFactor;
+      print('ALS started, initial factor: $factor');
+      if (mounted && factor != _sunlightFactor) {
+        setState(() => _sunlightFactor = factor);
+      }
+    });
+    _ambientLightService.stream.listen((factor) {
+      if (mounted && factor != _sunlightFactor) {
+        print('ALS factor changed: $factor');
+        setState(() => _sunlightFactor = factor);
+      }
+    });
+  }
+
+  /// Toggle light detection on/off. Stops the ALS service when off, resets sunlight factor to 0.
+  Future<void> toggleLightDetection(bool enabled) async {
+    await AppSettings.saveLightDetection(enabled);
+    if (mounted) {
+      setState(() => _lightDetectionEnabled = enabled);
+    }
+    if (!_isDesktop && mounted) {
+      try {
+        if (enabled) {
+          print('ALS enabled');
+          _ambientLightService.stop();
+          _startALS();
+        } else {
+          print('ALS disabled');
+          _ambientLightService.stop();
+          setState(() => _sunlightFactor = 0.0);
+        }
+      } catch (e) {
+        print('ALS toggle failed: $e');
+      }
+    }
+  }
+
+  /// Helper — resume ALS if the user has re-enabled it but something went wrong mid-run.
 
   /// Load favorites from persistent storage (async, non-blocking).
   Future<void> _loadFavoritesAsync() async {
@@ -362,6 +435,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      _librarySearchFocusNode.dispose();
      _mixesSearchFocusNode.dispose();
      _favoritesSearchFocusNode.dispose();
+    // Stop ALS service
+    if (!_isDesktop) {
+      try {
+        _ambientLightService.stop();
+      } catch (_) {}
+    }
     super.dispose();
   }
 
@@ -1626,8 +1705,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 child: AspectRatio(
                   aspectRatio: 1.0,
                   child: _showAlbumArt
-                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes)
-                      : TitlePattern(title: song.title),
+                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes, sunlightFactor: _sunlightFactor)
+                      : TitlePattern(title: song.title, sunlightFactor: _sunlightFactor),
                 ),
               ),
             ),
@@ -3276,6 +3355,82 @@ class _SettingsContentState extends State<_SettingsContent> {
                       'App will close after toggling — reopen to apply. First enable extracts artwork from your music library.',
                       style: TextStyle(fontSize: 10, color: Colors.grey[600], height: 1.5),
                     ),
+                  ),
+
+                  // --- Light detection toggle (Android only) ---
+                  const SizedBox(height: 24),
+                  FutureBuilder<bool>(
+                    future: AppSettings.loadLightDetection(),
+                    builder: (context, snapshot) {
+                      final enabled = snapshot.data ?? true;
+                      return InkWell(
+                        onTap: () async {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(enabled ? 'Light detection disabled' : 'Light detection enabled'),
+                            ),
+                          );
+                          final shell = context.findAncestorStateOfType<_DuskTuneShellState>();
+                          if (shell != null) {
+                            await shell.toggleLightDetection(!enabled);
+                          } else {
+                            // Fallback: use AppSettings directly (for settings page outside shell)
+                            await AppSettings.saveLightDetection(!enabled);
+                          }
+                        },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: enabled
+                                ? Colors.blueGrey[900]?.withValues(alpha: 0.3)
+                                : Colors.grey[900],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: enabled ? Colors.blueGrey[700]! : Colors.grey[800]!,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.wb_sunny,
+                                color: enabled ? Colors.blueGrey[300] : Colors.white54,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Light Detection',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: enabled ? Colors.blueGrey[300] : Colors.white70,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Adjust tile brightness based on ambient light',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[500],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right,
+                                color: enabled ? Colors.blueGrey[400] : Colors.white38,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
 
                   Padding(

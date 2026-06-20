@@ -3,6 +3,7 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  ambient_light
   audioplayers_windows
   permission_handler_windows
 )
