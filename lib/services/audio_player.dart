@@ -298,6 +298,7 @@ class MpvAudioHandler {
   /// Remove all audio filters (reset DSP chain).
   Future<void> clearFilters() async {
     debugPrint('MpvAudioHandler: clearing audio effects');
+    _filterControlValue = 0.0; // reset so next track doesn't reapply stale filter
     await _player.setAudioEffects(AudioEffects());
   }
 
