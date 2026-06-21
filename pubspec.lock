@@ -275,10 +275,11 @@ packages:
   mpv_audio_kit:
     dependency: "direct main"
     description:
-      name: mpv_audio_kit
-      sha256: "4cca4e285abd0e4b2284f7edd70ced5894c99757a5999a33b3c41b7f458fa488"
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: HEAD
+      resolved-ref: "06a74ea433bde8a3acc2824298046670fdd4a82d"
+      url: "https://github.com/spkelevra/mpv_audio_kit.git"
+    source: git
     version: "0.4.2"
   nested:
     dependency: transitive

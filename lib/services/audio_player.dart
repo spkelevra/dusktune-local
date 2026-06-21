@@ -64,7 +64,14 @@ class MpvAudioHandler {
   Future<void> playSong(Song song) async {
     debugPrint('MpvAudioHandler.playSong: ${song.title} uri=${song.uri}');
 
-    final media = Media(song.uri);
+    final media = Media(
+      song.uri,
+      audioEffects: _filterControlValue.abs() >= 0.02 ? _currentFilterEffects() : null,
+    );
+
+    if (_filterControlValue.abs() >= 0.02) {
+      debugPrint('MpvAudioHandler: injecting pre-load filter for ${song.title} via Media.audioEffects');
+    }
 
     _isTransitioning = true;
     try {
@@ -268,34 +275,41 @@ class MpvAudioHandler {
 
     _filterControlValue = v; // persist for reapply on track change
 
-    if (v.abs() < 0.02) {
-      // Near neutral — restore both filters to pass-through frequencies
-      return await _player.updateAudioEffects((effects) => effects.copyWith(
-        lowpass: const LowpassSettings(enabled: true, f: 20000.0),
-        highpass: const HighpassSettings(enabled: true, f: 20.0),
-      ));
-    } else if (v < 0) {
-      // Negative → LPF gets active. Use a logarithmic mapping so the effect builds
-      // gradually and peaks at something musically meaningful (~100 Hz).
-      // t goes from 0 (just off center) to 1 (full left).
-      final t = (-v).clamp(0.02, 1.0);
-      // Log mapping: f = 20000 * pow(ratio, t) where ratio = 100/20000 ≈ 0.005
-      final lpCutoff = 20000.0 * pow(0.005, t); // ~4 kHz at center → ~100 Hz at full left
-      debugPrint('MpvAudioHandler: filter control $v → LPF @ ${lpCutoff.toStringAsFixed(0)} Hz');
-      await _player.updateAudioEffects((effects) => effects.copyWith(
+    return await _player.updateAudioEffects((effects) => effects.copyWith(
+      lowpass: LowpassSettings(
+        enabled: true,
+        f: v.abs() < 0.02 || v >= 0 ? 20000.0 : 20000.0 * pow(0.005, (-v).clamp(0.02, 1.0)),
+      ),
+      highpass: HighpassSettings(
+        enabled: true,
+        f: v.abs() < 0.02 || v <= 0 ? 20.0 : (20.0 * pow(400.0, v.clamp(0.02, 1.0))).clamp(10.0, 20000.0),
+      ),
+    ));
+  }
+
+  /// Build an [AudioEffects] bundle from the current filter control value,
+  /// or a neutral pass-through if no filter is active. Used for initial-media
+  /// injection and live updates.
+  AudioEffects _currentFilterEffects() {
+    if (_filterControlValue.abs() < 0.02) {
+      return const AudioEffects(
+        lowpass: LowpassSettings(enabled: true, f: 20000.0),
+        highpass: HighpassSettings(enabled: true, f: 20.0),
+      );
+    } else if (_filterControlValue < 0) {
+      final t = (-_filterControlValue).clamp(0.02, 1.0);
+      final lpCutoff = 20000.0 * pow(0.005, t);
+      return AudioEffects(
         lowpass: LowpassSettings(enabled: true, f: lpCutoff),
         highpass: const HighpassSettings(enabled: true, f: 20.0),
-      ));
+      );
     } else {
-      // Positive → HPF gets active. Same logarithmic mapping on the other side.
-      final t = v.clamp(0.02, 1.0);
-      // Log mapping: f = 20 * pow(ratio, t) where ratio = 8000/20 = 400
-      final hpCutoff = 20.0 * pow(400.0, t); // ~5 kHz at center → ~8 kHz at full right
-      debugPrint('MpvAudioHandler: filter control $v → HPF @ ${hpCutoff.toStringAsFixed(0)} Hz');
-      await _player.updateAudioEffects((effects) => effects.copyWith(
+      final t = _filterControlValue.clamp(0.02, 1.0);
+      final hpCutoff = 20.0 * pow(400.0, t).clamp(10.0, 20000.0);
+      return AudioEffects(
         lowpass: const LowpassSettings(enabled: true, f: 20000.0),
-        highpass: HighpassSettings(enabled: true, f: hpCutoff.clamp(10.0, 20000.0)),
-      ));
+        highpass: HighpassSettings(enabled: true, f: hpCutoff),
+      );
     }
   }
 
