@@ -2668,8 +2668,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       child: SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 3.5),
+                           overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
                           activeTrackColor: Colors.white38,
                           inactiveTrackColor: Colors.transparent,
                           thumbColor: Colors.white54,
