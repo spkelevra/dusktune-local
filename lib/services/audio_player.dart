@@ -1,473 +1,487 @@
-/// Audio playback service wrapping [just_audio] + [audio_service].
+/// Audio playback service wrapping [mpv_audio_kit].
 library;
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
-import 'package:audio_service/audio_service.dart';
-import 'package:audioplayers/audioplayers.dart' as ap;
+import 'package:mpv_audio_kit/mpv_audio_kit.dart';
 import '../models/song.dart';
 
-/// Singleton audio handler that runs in a background isolate (Android).
-class DuskAudioHandler extends BaseAudioHandler
-    with QueueHandler, SeekHandler {
-  final AudioPlayer _player = AudioPlayer();
+/// Singleton audio handler — uses mpv directly (no background isolate).
+class MpvAudioHandler {
+  final Player _player = Player();
 
-  /// Callback invoked when a track finishes playing — the UI uses this to decide what plays next.
+  /// Callback invoked when a track finishes playing.
   void Function()? onTrackComplete;
 
-  /// Callbacks for notification panel next/previous — delegated from UI state.
-  void Function()? onNextFromNotification;
-  void Function()? onPreviousFromNotification;
+  /// Current volume level (0.0–1.0).
+  double _currentVolume = 1.0;
 
-  DuskAudioHandler() {
-    // Wire up state broadcasting immediately on construction.
-    _broadcastState();
-    _player.playbackEventStream.listen((_) => _broadcastState());
-    _player.processingStateStream.listen((state) {
-      debugPrint('DuskAudioHandler processingState: $state');
-      _broadcastState();
-      // Auto-advance when a track completes
-      if (state == ProcessingState.completed && onTrackComplete != null) {
+  /// Current filter control value (-1..+1), persisted so we can reapply it
+  /// after a track change (mpv clears DSP chain on file load).
+  double _filterControlValue = 0.0;
+
+  /// Flag set while playSong is in flight. endFile events that arrive during
+  /// a transition are ignored — they're caused by the previous file being
+  /// replaced, not by it actually finishing playback.
+  bool _isTransitioning = false;
+
+  MpvAudioHandler() {
+    // Pre-initialize DSP chain with pass-through filters so the pipeline is
+    // always present — prevents first-track glitch when setFilterControl runs
+    // on an empty chain after open().
+    _player.setAudioEffects(AudioEffects(
+      lowpass: const LowpassSettings(enabled: true, f: 20000.0),
+      highpass: const HighpassSettings(enabled: true, f: 20.0),
+    ));
+
+    // Listen for track completion via the `completed` stream — this is the
+    // authoritative signal provided by mpv_audio_kit that a track has finished
+    // playing (equivalent to just_audio's ProcessingState.completed).
+    _player.stream.completed.listen((done) {
+      if (!done || _isTransitioning) return;
+      debugPrint('MpvAudioHandler: completed=true, firing onTrackComplete');
+      if (onTrackComplete != null) {
         onTrackComplete!();
+      } else {
+        debugPrint('  -> WARNING: onTrackComplete callback is NULL');
       }
+    });
+
+    // Also listen for endFile events — fire on natural EOF or error.
+    _player.stream.endFile.listen((event) {
+      if (_isTransitioning) return;
+      // Only fire on eof (natural end) or error — not stop/quit (file replacement).
+      debugPrint('MpvAudioHandler: endFile reason=${event.reason}');
+      if ((event.reason == MpvEndFileReason.eof || event.reason == MpvEndFileReason.error)) {
+        debugPrint('  -> firing onTrackComplete from endFile');
+        onTrackComplete?.call();
+      }
+    });
+
+    // Listen for errors
+    _player.stream.error.listen((error) {
+      debugPrint('MpvAudioHandler error: $error');
     });
   }
 
-  void _broadcastState() {
-    final playing = _player.playing;
-    playbackState.add(
-      PlaybackState(
-        controls: [
-          MediaControl.skipToPrevious,
-          if (playing) MediaControl.pause else MediaControl.play,
-          MediaControl.stop,
-          MediaControl.skipToNext,
-        ],
-        systemActions: const {},
-        androidCompactActionIndices: const [0, 1, 3],
-        processingState: const {
-          ProcessingState.idle: AudioProcessingState.idle,
-          ProcessingState.loading: AudioProcessingState.loading,
-          ProcessingState.buffering: AudioProcessingState.buffering,
-          ProcessingState.ready: AudioProcessingState.ready,
-          ProcessingState.completed: AudioProcessingState.completed,
-        }[_player.processingState] ?? AudioProcessingState.idle,
-        playing: playing,
-      ),
+  /// Play a song using its file path. Sets _isTransitioning so that endFile
+  /// events from the previous (replaced) track are suppressed until this call
+  /// completes, then briefly afterwards to let mpv settle.
+  Future<void> playSong(Song song) async {
+    debugPrint('MpvAudioHandler.playSong: ${song.title} uri=${song.uri}');
+
+    final media = Media(
+      song.uri,
+      audioEffects: _filterControlValue.abs() >= 0.02 ? _currentFilterEffects() : null,
     );
+
+    if (_filterControlValue.abs() >= 0.02) {
+      debugPrint('MpvAudioHandler: injecting pre-load filter for ${song.title} via Media.audioEffects');
+    }
+
+    _isTransitioning = true;
+    try {
+      await _player.open(media, play: true);
+      // Give mpv a brief settle window after open so the old file's EOF
+      // (if it arrives late) doesn't trigger auto-advance.
+      await Future.delayed(const Duration(milliseconds: 200));
+      debugPrint('MpvAudioHandler.playSong: success for ${song.title}');
+    } catch (e) {
+      debugPrint('MpvAudioHandler.playSong FAILED for ${song.title}: $e');
+    } finally {
+      _isTransitioning = false;
+    }
   }
 
-  @override
   Future<void> play() async {
     await _player.play();
   }
 
-  @override
   Future<void> pause() async {
     await _player.pause();
   }
 
-  @override
   Future<void> stop() async {
-    await _player.stop();
+    debugPrint('MpvAudioHandler: stop called');
+    await _player.seek(Duration.zero);
+    await _player.pause();
   }
 
-  @override
   Future<void> seek(Duration position) async {
     await _player.seek(position);
   }
 
-  @override
-  Future<void> skipToQueueItem(int index) async {
-    if (queue.value.isEmpty) return;
-    final mediaItem = queue.value[index];
-    await _playMediaItem(mediaItem);
+  bool get isPlaying => _player.state.playWhenReady;
+
+  Stream<Duration> get positionStream => _player.stream.position;
+
+  Stream<Duration?> get durationStream =>
+      _player.stream.duration.map((d) => d.isNegative ? null : d);
+
+  /// Set playback volume (0.0–1.0).
+  Future<void> setVolume(double v) async {
+    _currentVolume = v.clamp(0.0, 1.0);
+    await _player.setVolume(_currentVolume * 100);
   }
 
-  /// Override: delegate next to UI so it respects play queue + shuffle.
-  @override
-  Future<void> skipToNext() async {
-    if (onNextFromNotification != null) {
-      onNextFromNotification!();
-    } else {
-      // Fallback: replay current track from start
-      await _player.seek(Duration.zero);
-      await _player.play();
-    }
-  }
+  double get currentVolume => _currentVolume;
 
-  /// Override: delegate previous to UI so it respects play queue + shuffle.
-  @override
-  Future<void> skipToPrevious() async {
-    if (onPreviousFromNotification != null) {
-      onPreviousFromNotification!();
-    } else {
-      // Fallback: replay current track from start
-      await _player.seek(Duration.zero);
-      await _player.play();
-    }
-  }
+  /// Gradually ramp a low-pass filter from full (20 kHz) down to the target
+  /// cutoff over [duration], using updateAudioEffects so each step is an
+  /// af-command parameter tweak — no chain teardown, no skip.
+  Future<void> rampLowPassFilter(double targetCutoffHz, Duration duration) async {
+    const steps = 30;
+    final stepMs = (duration.inMilliseconds / steps).ceil();
 
-  /// Load and play a [Song] using its file path.
-  Future<void> playSong(Song song) async {
-    debugPrint('DuskAudioHandler.playSong: ${song.title} uri=${song.uri}');
-
-    final mediaItem = MediaItem(
-      id: song.id.toString(),
-      title: song.title,
-      artist: song.artist ?? 'Unknown Artist',
-      album: song.album ?? '',
-      duration: Duration(milliseconds: song.durationMs),
-      extras: {'uri': song.uri},
+    // First enable the filter at 20 kHz (essentially no effect), then ramp.
+    await _player.updateAudioEffects(
+      (effects) => effects.copyWith(
+        lowpass: const LowpassSettings(enabled: true, f: 20000.0),
+      ),
     );
 
-    try {
-      // Use AudioSource.file for local files — better codec support (WMA, etc.)
-      await _player.setAudioSource(
-        AudioSource.file(song.uri, tag: mediaItem),
-      );
-      this.mediaItem.add(mediaItem);
-      queue.value = [mediaItem];
-      await play();
-      debugPrint('DuskAudioHandler.playSong: success for ${song.title}');
-    } catch (e) {
-      debugPrint('DuskAudioHandler.playSong FAILED for ${song.title}: $e');
+    for (int i = 1; i <= steps; i++) {
+      final t = i / steps;
+      final cutoff = 20000.0 - (t * (20000.0 - targetCutoffHz));
+      debugPrint('MpvAudioHandler: ramp LPF to ${cutoff.toStringAsFixed(0)} Hz');
+
+      // Only change the f parameter — everything else stays identical,
+      // so updateAudioEffects will use af-command (glitch-free).
+      await _player.updateAudioEffects((effects) {
+        final lp = effects.lowpass;
+        if (lp != null) {
+          return effects.copyWith(lowpass: lp.copyWith(f: cutoff));
+        } else {
+          return effects.copyWith(
+            lowpass: LowpassSettings(enabled: true, f: cutoff),
+          );
+        }
+      });
+
+      if (i < steps) {
+        await Future.delayed(Duration(milliseconds: stepMs));
+      }
     }
   }
 
-  Future<void> _playMediaItem(MediaItem mediaItem) async {
-    final uriStr = mediaItem.extras?['uri'] as String?;
-    if (uriStr != null) {
-      await _player.setAudioSource(
-        AudioSource.file(uriStr, tag: mediaItem),
+  /// Gradually ramp the low-pass filter from its current cutoff up to "no
+  /// filter", then disable it. Uses af-command for glitch-free updates.
+  Future<void> removeLowPassFilter(Duration duration) async {
+    const steps = 20; // faster than engaging
+    final stepMs = (duration.inMilliseconds / steps).ceil();
+
+    for (int i = 1; i <= steps; i++) {
+      final t = i / steps;
+      final cutoff = 400.0 + (t * 19600.0);
+
+      if (cutoff >= 20000) {
+        // Disable the filter entirely
+        await _player.updateAudioEffects(
+          (effects) => effects.copyWith(lowpass: null),
+        );
+        return;
+      }
+
+      debugPrint('MpvAudioHandler: remove LPF to ${cutoff.toStringAsFixed(0)} Hz');
+      await _player.updateAudioEffects((effects) {
+        final lp = effects.lowpass;
+        if (lp != null) {
+          return effects.copyWith(lowpass: lp.copyWith(f: cutoff));
+        } else {
+          return effects;
+        }
+      });
+
+      if (i < steps) {
+        await Future.delayed(Duration(milliseconds: stepMs));
+      }
+    }
+
+    // Safety net — disable filter in case we didn't reach 20kHz.
+    await _player.updateAudioEffects((effects) => effects.copyWith(lowpass: null));
+  }
+
+  /// Gradually ramp a high-pass filter from full (20 Hz) up to the target
+  /// cutoff over [duration], using af-command for glitch-free updates.
+  Future<void> rampHighPassFilter(double targetCutoffHz, Duration duration) async {
+    const steps = 30;
+    final stepMs = (duration.inMilliseconds / steps).ceil();
+
+    // First enable the filter at ~20 Hz (essentially no effect), then ramp.
+    await _player.updateAudioEffects(
+      (effects) => effects.copyWith(
+        highpass: const HighpassSettings(enabled: true, f: 20.0),
+      ),
+    );
+
+    for (int i = 1; i <= steps; i++) {
+      final t = i / steps;
+      final cutoff = 20.0 + (t * (targetCutoffHz - 20.0));
+      debugPrint('MpvAudioHandler: ramp HPF to ${cutoff.toStringAsFixed(0)} Hz');
+
+      await _player.updateAudioEffects((effects) {
+        final hp = effects.highpass;
+        if (hp != null) {
+          return effects.copyWith(highpass: hp.copyWith(f: cutoff));
+        } else {
+          return effects.copyWith(
+            highpass: HighpassSettings(enabled: true, f: cutoff),
+          );
+        }
+      });
+
+      if (i < steps) {
+        await Future.delayed(Duration(milliseconds: stepMs));
+      }
+    }
+  }
+
+  /// Gradually ramp the high-pass filter from its current cutoff down to "no
+  /// filter", then disable it. Uses af-command for glitch-free updates.
+  Future<void> removeHighPassFilter(Duration duration) async {
+    const steps = 20; // faster than engaging
+    final stepMs = (duration.inMilliseconds / steps).ceil();
+
+    for (int i = 1; i <= steps; i++) {
+      final t = i / steps;
+      final cutoff = 800.0 - (t * 780.0); // 800 down to 20
+
+      if (cutoff < 100) {
+        await _player.updateAudioEffects(
+          (effects) => effects.copyWith(highpass: null),
+        );
+        return;
+      }
+
+      debugPrint('MpvAudioHandler: remove HPF to ${cutoff.toStringAsFixed(0)} Hz');
+      await _player.updateAudioEffects((effects) {
+        final hp = effects.highpass;
+        if (hp != null) {
+          return effects.copyWith(highpass: hp.copyWith(f: cutoff));
+        } else {
+          return effects;
+        }
+      });
+
+      if (i < steps) {
+        await Future.delayed(Duration(milliseconds: stepMs));
+      }
+    }
+
+    // Safety net — disable filter in case we didn't reach 20Hz.
+    await _player.updateAudioEffects((effects) => effects.copyWith(highpass: null));
+  }
+
+  /// Apply a combined filter control value in the range -1.0 (strong LPF) through
+  /// +1.0 (strong HPF), with 0.0 meaning no filter. Keeps both filters enabled at
+  /// all times with neutral frequencies, so only the cutoff moves — never an abrupt
+  /// enable/disable toggle. Uses updateAudioEffects for glitch-free af-command updates.
+  Future<void> setFilterControl(double value) async {
+    // Clamp to [-1, +1]
+    final v = value.clamp(-1.0, 1.0);
+
+    _filterControlValue = v; // persist for reapply on track change
+
+    return await _player.updateAudioEffects((effects) => effects.copyWith(
+      lowpass: LowpassSettings(
+        enabled: true,
+        f: v.abs() < 0.02 || v >= 0 ? 20000.0 : 20000.0 * pow(0.005, (-v).clamp(0.02, 1.0)),
+      ),
+      highpass: HighpassSettings(
+        enabled: true,
+        f: v.abs() < 0.02 || v <= 0 ? 20.0 : (20.0 * pow(400.0, v.clamp(0.02, 1.0))).clamp(10.0, 20000.0),
+      ),
+    ));
+  }
+
+  /// Build an [AudioEffects] bundle from the current filter control value,
+  /// or a neutral pass-through if no filter is active. Used for initial-media
+  /// injection and live updates.
+  AudioEffects _currentFilterEffects() {
+    if (_filterControlValue.abs() < 0.02) {
+      return const AudioEffects(
+        lowpass: LowpassSettings(enabled: true, f: 20000.0),
+        highpass: HighpassSettings(enabled: true, f: 20.0),
+      );
+    } else if (_filterControlValue < 0) {
+      final t = (-_filterControlValue).clamp(0.02, 1.0);
+      final lpCutoff = 20000.0 * pow(0.005, t);
+      return AudioEffects(
+        lowpass: LowpassSettings(enabled: true, f: lpCutoff),
+        highpass: const HighpassSettings(enabled: true, f: 20.0),
       );
     } else {
-      debugPrint('_playMediaItem: no URI in extras for ${mediaItem.title}');
-      return;
-    }
-    this.mediaItem.add(mediaItem);
-    await play();
-  }
-
-  /// Expose the internal [AudioPlayer] for position/duration streams.
-  AudioPlayer get player => _player;
-}
-
-/// Desktop audio handler — uses audioplayers which has native Windows/macOS/Linux support.
-class DesktopAudioHandler {
-  final ap.AudioPlayer _player = ap.AudioPlayer();
-  bool _playing = false;
-  final StreamController<bool> _playingController = StreamController<bool>.broadcast();
-  final StreamController<Duration> _positionController = StreamController<Duration>.broadcast();
-  final StreamController<Duration?> _durationController = StreamController<Duration?>.broadcast();
-  Timer? _positionTimer;
-
-  void Function()? onTrackComplete;
-  void Function()? onNextFromNotification;
-  void Function()? onPreviousFromNotification;
-
-
-  DesktopAudioHandler() {
-    _player.onPlayerStateChanged.listen((state) {
-      debugPrint('DesktopAudioHandler state: $state');
-      final wasPlaying = _playing;
-      _playing = state == ap.PlayerState.playing;
-      if (state == ap.PlayerState.stopped || state == ap.PlayerState.completed) {
-        _playing = false;
-        _positionTimer?.cancel();
-        // NOTE: onTrackComplete is handled by onPlayerComplete below —
-        // do NOT fire it here to avoid double-firing.
-      }
-      if (state == ap.PlayerState.playing) {
-        _startPositionTimer();
-      }
-      // Notify UI of playing state change
-      if (_playing != wasPlaying) {
-        _playingController.add(_playing);
-      }
-    });
-    _player.onDurationChanged.listen((duration) {
-      debugPrint('DesktopAudioHandler duration: $duration');
-      _durationController.add(duration);
-    });
-    _player.onPositionChanged.listen((pos) {
-      _positionController.add(pos);
-    });
-    _player.onPlayerComplete.listen((_) {
-      debugPrint('DesktopAudioHandler: track completed');
-      _playing = false;
-      _positionTimer?.cancel();
-      if (onTrackComplete != null) {
-        onTrackComplete!();
-      }
-    });
-  }
-
-
-  void _startPositionTimer() {
-    _positionTimer?.cancel();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
-      try {
-        final pos = await _player.getCurrentPosition();
-        if (pos != null) {
-          _positionController.add(pos);
-        }
-      } catch (e) { debugPrint("DesktopAudioHandler position poll error (ignored): $e"); }
-    });
-  }
-
-  Future<void> playSong(Song song) async {
-    debugPrint('DesktopAudioHandler.playSong: ${song.title} path=${song.uri}');
-
-    // Verify file exists
-    final filePath = song.uri;
-    try {
-      final file = File(filePath);
-      if (!await file.exists()) {
-        debugPrint('DesktopAudioHandler.playSong: FILE NOT FOUND at $filePath');
-        throw Exception('File not found: $filePath');
-      }
-      debugPrint('DesktopAudioHandler.playSong: file exists, size=${await file.length()} bytes');
-    } catch (e) {
-      debugPrint('DesktopAudioHandler.playSong: file check failed: $e');
-    }
-
-    try {
-      // Reset position to zero before loading new track — prevents stale progress bar
-      _positionController.add(Duration.zero);
-      await _player.stop();
-      await _player.setSourceDeviceFile(filePath);
-      await _player.resume();
-      debugPrint('DesktopAudioHandler.playSong: success for ${song.title}');
-    } catch (e) {
-      debugPrint('DesktopAudioHandler.playSong FAILED for ${song.title}: $e');
+      final t = _filterControlValue.clamp(0.02, 1.0);
+      final hpCutoff = 20.0 * pow(400.0, t).clamp(10.0, 20000.0);
+      return AudioEffects(
+        lowpass: const LowpassSettings(enabled: true, f: 20000.0),
+        highpass: HighpassSettings(enabled: true, f: hpCutoff),
+      );
     }
   }
 
-  Future<void> play() async {
-    await _player.resume();
-    _playing = true;
+  /// Remove all audio filters (reset DSP chain).
+  Future<void> clearFilters() async {
+    debugPrint('MpvAudioHandler: clearing audio effects');
+    _filterControlValue = 0.0; // reset so next track doesn't reapply stale filter
+    await _player.setAudioEffects(AudioEffects());
   }
-
-  Future<void> pause() async {
-    await _player.pause();
-    _playing = false;
-  }
-
-  Future<void> stop() async {
-    await _player.stop();
-    _playing = false;
-    _positionTimer?.cancel();
-  }
-
-  Future<void> seek(Duration position) async {
-    await _player.seek(position);
-  }
-
-  bool get isPlaying => _playing;
-
-  Future<void> setVolume(double v) async {
-    await _player.setVolume(v.clamp(0.0, 1.0));
-  }
-
-  Stream<bool> get playingStateStream => _playingController.stream;
-  Stream<Duration> get positionStream => _positionController.stream;
-  Stream<Duration?> get durationStream => _durationController.stream;
 
   void dispose() {
-    _positionTimer?.cancel();
-    _playingController.close();
-    _positionController.close();
-    _durationController.close();
     _player.dispose();
   }
 }
 
 /// Facade class that the UI interacts with.
 class AudioPlayerService {
-  static DuskAudioHandler? _handler;       // Android (audio_service)
-  static DesktopAudioHandler? _desktopHandler; // Desktop (just_audio direct)
+  static MpvAudioHandler? _handler;
   static final bool _isDesktop = !Platform.isAndroid && !Platform.isIOS;
 
   /// Initialize the audio service (call once in main()).
   static Future<void> init() async {
-    if (_isDesktop) {
-      // Desktop: use just_audio directly — no background isolate needed.
-      _desktopHandler = DesktopAudioHandler();
-      debugPrint('AudioPlayerService: initialized for desktop');
-    } else {
-      // Android/iOS: use audio_service with background isolate + notifications.
-      _handler = await AudioService.init(
-        builder: () => DuskAudioHandler(),
-        config: const AudioServiceConfig(
-          androidNotificationChannelId: 'com.spkelevra.dusktune.channel.audio',
-          androidNotificationChannelName: 'DuskTune playback',
-          androidShowNotificationBadge: true,
-          androidStopForegroundOnPause: false,
-        ),
-      );
-      debugPrint('AudioPlayerService: initialized with audio_service');
-    }
+    _handler = MpvAudioHandler();
+    debugPrint('AudioPlayerService: initialized with mpv_audio_kit');
   }
 
-  static DuskAudioHandler? get handler => _handler;
-  static DesktopAudioHandler? get desktopHandler => _desktopHandler;
+  static MpvAudioHandler? get handler => _handler;
   static bool get isDesktop => _isDesktop;
 
   /// Set a callback for when the current track finishes playing.
   static void setOnTrackComplete(void Function()? callback) {
+    debugPrint('AudioPlayerService: setOnTrackComplete(${callback != null ? "callback" : "null"})');
     _handler?.onTrackComplete = callback;
-    _desktopHandler?.onTrackComplete = callback;
   }
 
   /// Set callbacks for notification panel next/previous buttons.
+  /// (No-op with mpv — media session handled differently.)
   static void setNotificationCallbacks({
     void Function()? onNext,
     void Function()? onPrevious,
   }) {
-    _handler?.onNextFromNotification = onNext;
-    _handler?.onPreviousFromNotification = onPrevious;
-    _desktopHandler?.onNextFromNotification = onNext;
-    _desktopHandler?.onPreviousFromNotification = onPrevious;
+    // No-op — mpv handles OS integration internally via MediaSession
   }
 
   /// Play a song.
   static Future<void> playSong(Song song) async {
-    if (_isDesktop) {
-      await _desktopHandler?.playSong(song);
-    } else {
-      await _handler?.playSong(song);
-    }
+    debugPrint('AudioPlayerService: playSong(${song.title})');
+    await _handler?.playSong(song);
   }
 
   /// Toggle play/pause.
   static Future<void> togglePlayPause() async {
-    if (_isDesktop) {
-      final dh = _desktopHandler;
-      if (dh == null) return;
-      if (dh.isPlaying) {
-        await dh.pause();
-      } else {
-        await dh.play();
-      }
+    if (_handler == null) return;
+    if (_handler!.isPlaying) {
+      await pause();
     } else {
-      if (_handler == null) return;
-      final state = _handler!.playbackState.value;
-      if (state.playing) {
-        await pause();
-      } else {
-        await play();
-      }
+      await play();
     }
   }
 
   /// Play.
   static Future<void> play() async {
-    if (_isDesktop) {
-      await _desktopHandler?.play();
-    } else {
-      await _handler?.play();
-    }
+    await _handler?.play();
   }
 
   /// Pause.
   static Future<void> pause() async {
-    if (_isDesktop) {
-      await _desktopHandler?.pause();
-    } else {
-      await _handler?.pause();
-    }
+    await _handler?.pause();
   }
 
   /// Stop playback.
   static Future<void> stop() async {
-    if (_isDesktop) {
-      await _desktopHandler?.stop();
-    } else {
-      await _handler?.stop();
-    }
+    debugPrint('AudioPlayerService: stop called');
+    await _handler?.stop();
   }
 
   /// Seek to position.
   static Future<void> seek(Duration position) async {
-    if (_isDesktop) {
-      await _desktopHandler?.seek(position);
-    } else {
-      await _handler?.seek(position);
-    }
+    await _handler?.seek(position);
   }
 
   /// Set playback volume (0.0–1.0).
   static Future<void> setVolume(double v) async {
-    if (_isDesktop) {
-      await _desktopHandler?.setVolume(v);
-    } else {
-      final h = _handler;
-      if (h != null) await h.player.setVolume(v.clamp(0.0, 1.0));
-    }
+    await _handler?.setVolume(v);
   }
 
   /// Skip to next song in queue.
   static Future<void> skipToNext() async {
-    await _handler?.skipToQueueItem(1);
+    // No-op — queue management is handled by the UI layer via onTrackComplete callback
   }
 
   /// Skip to previous song in queue.
   static Future<void> skipToPrevious() async {
-    await _handler?.skipToQueueItem(0);
-  }
-
-  /// Current playback state stream (Android only).
-  static Stream<PlaybackState?> get playbackState {
-    return _handler?.playbackState.stream ?? const Stream.empty();
+    // No-op — queue management is handled by the UI layer via onTrackComplete callback
   }
 
   /// Playing state stream that works on ALL platforms.
   /// Emits true when playing starts, false when paused/stopped/completed.
   static Stream<bool> get playingStateStream {
-    if (_isDesktop) {
-      final dh = _desktopHandler;
-      if (dh != null) return dh.playingStateStream;
-    } else {
-      // On Android, derive from playbackState stream
-      final handler = _handler;
-      if (handler != null) {
-        return handler.playbackState.stream.map((state) => state.playing);
-      }
+    final handler = _handler;
+    if (handler != null) {
+      return _playerPlayingStream(handler);
     }
     return const Stream.empty();
   }
 
   /// Whether currently playing.
-  static bool get isPlaying {
-    if (_isDesktop) return _desktopHandler?.isPlaying ?? false;
-    return _handler?.playbackState.value.playing ?? false;
-  }
+  static bool get isPlaying => _handler?.isPlaying ?? false;
 
-  /// Current position stream from just_audio (if available).
+  /// Current position stream from mpv_audio_kit.
   static Stream<Duration> get positionStream {
-    if (_isDesktop) {
-      final dh = _desktopHandler;
-      if (dh != null) return dh.positionStream;
-    } else {
-      final handler = _handler;
-      if (handler != null) return handler.player.positionStream;
-    }
+    final handler = _handler;
+    if (handler != null) return handler.positionStream;
     // Fallback: emit zero periodically so UI doesn't crash.
     return Stream.periodic(const Duration(milliseconds: 500), (_) => Duration.zero);
   }
 
   /// Current duration stream.
   static Stream<Duration?> get durationStream {
-    if (_isDesktop) {
-      final dh = _desktopHandler;
-      if (dh != null) return dh.durationStream;
-    } else {
-      final handler = _handler;
-      if (handler != null) return handler.player.durationStream;
+    final handler = _handler;
+    if (handler != null) {
+      return handler.durationStream;
     }
     return const Stream.empty();
+  }
+
+  /// Helper to derive playing state stream from mpv player.
+  static Stream<bool> _playerPlayingStream(MpvAudioHandler handler) {
+    // Combine position changes with play/pause events
+    return handler.positionStream.map((_) => handler.isPlaying);
+  }
+
+  /// Remove low-pass filter gradually over [duration].
+  static Future<void> removeLowPassFilter(Duration duration) async {
+    await _handler?.removeLowPassFilter(duration);
+  }
+
+  /// Ramp up a low-pass filter gradually.
+  static Future<void> rampLowPassFilter(double cutoffHz, Duration duration) async {
+    await _handler?.rampLowPassFilter(cutoffHz, duration);
+  }
+
+  /// Remove high-pass filter gradually over [duration].
+  static Future<void> removeHighPassFilter(Duration duration) async {
+    await _handler?.removeHighPassFilter(duration);
+  }
+
+  /// Ramp up a high-pass filter gradually.
+  static Future<void> rampHighPassFilter(double cutoffHz, Duration duration) async {
+    await _handler?.rampHighPassFilter(cutoffHz, duration);
+  }
+
+  /// Clear all audio filters.
+  static Future<void> clearFilters() async {
+    await _handler?.clearFilters();
+  }
+
+  /// Apply a combined filter control (-1 = strong LPF, +1 = strong HPF, 0 = none).
+  static Future<void> setFilterControl(double value) async {
+    await _handler?.setFilterControl(value);
+  }
+
+  void dispose() {
+    _handler?.dispose();
   }
 }

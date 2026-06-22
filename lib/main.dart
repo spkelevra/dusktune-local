@@ -7,10 +7,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app_theme.dart';
 import 'models/song.dart';
+import 'services/artwork_extractor.dart';
 import 'services/audio_player.dart';
 import 'services/music_library.dart';
 import 'services/music_scanner.dart' as desktop_scanner;
 import 'services/app_settings.dart';
+import 'services/ambient_light_service.dart';
+import 'widgets/rotary_filter_knob.dart';
 import 'widgets/tile_pattern.dart';
 import 'dart:async';
 
@@ -246,6 +249,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Album art display toggle
   bool _showAlbumArt = false;
 
+  // Sunlight factor from ALS — drives tile background brightness (0.0–1.0)
+  double _sunlightFactor = 0.0;
+
+  // Light detection setting — persisted toggle, defaults true on Android
+  bool _lightDetectionEnabled = true;
+
+  /// Filter control state in range [-1, +1]: negative = LPF, positive = HPF, ~0 = none.
+  double _filterControl = 0.0;
+  late final AmbientLightService _ambientLightService;
+
   // Pin mode: overlay for assigning current song to a tile.
   bool _pinMode = false;
     int? _pinSwapSourceIndex; // source tile for swap in pin mode overlay
@@ -298,7 +311,69 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     // Load persisted settings and favorites
     _loadSettings();
     _loadFavoritesAsync();
+
+    // Start ambient light sensor (Android only — gracefully no-ops on desktop)
+    if (!_isDesktop) {
+      AppSettings.loadLightDetection().then((enabled) async {
+        if (!mounted) return;
+        try {
+          _lightDetectionEnabled = enabled;
+          setState(() {}); // trigger UI with correct initial toggle state
+          _ambientLightService = AmbientLightService();
+
+          if (enabled) {
+            _startALS();
+          } else {
+            print('ALS disabled by user');
+          }
+        } catch (e) {
+          print('ALS init failed: $e');
+        }
+      });
+    }
   }
+
+  /// Start ALS and subscribe to its stream.
+  void _startALS() {
+    _ambientLightService.start().then((_) {
+      final factor = _ambientLightService.currentFactor;
+      print('ALS started, initial factor: $factor');
+      if (mounted && factor != _sunlightFactor) {
+        setState(() => _sunlightFactor = factor);
+      }
+    });
+    _ambientLightService.stream.listen((factor) {
+      if (mounted && factor != _sunlightFactor) {
+        print('ALS factor changed: $factor');
+        setState(() => _sunlightFactor = factor);
+      }
+    });
+  }
+
+  /// Toggle light detection on/off. Stops the ALS service when off, resets sunlight factor to 0.
+  Future<void> toggleLightDetection(bool enabled) async {
+    await AppSettings.saveLightDetection(enabled);
+    if (mounted) {
+      setState(() => _lightDetectionEnabled = enabled);
+    }
+    if (!_isDesktop && mounted) {
+      try {
+        if (enabled) {
+          print('ALS enabled');
+          _ambientLightService.stop();
+          _startALS();
+        } else {
+          print('ALS disabled');
+          _ambientLightService.stop();
+          setState(() => _sunlightFactor = 0.0);
+        }
+      } catch (e) {
+        print('ALS toggle failed: $e');
+      }
+    }
+  }
+
+  /// Helper — resume ALS if the user has re-enabled it but something went wrong mid-run.
 
   /// Load favorites from persistent storage (async, non-blocking).
   Future<void> _loadFavoritesAsync() async {
@@ -317,6 +392,27 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         }
       }
     });
+  }
+
+  // ─── Filter Control — continuous slider [-1, +1] ──
+
+  /// Apply filter control change from the UI slider — fire-and-forget for lowest latency.
+  void _onFilterChanged(double value) {
+    _filterControl = value;
+    // Don't await — let each tick run concurrently so drag feels immediate.
+    AudioPlayerService.setFilterControl(value);
+  }
+
+  /// Reset filter to neutral when the 'Filter' label is tapped.
+  Future<void> _resetFilter() async {
+    await AudioPlayerService.clearFilters();
+    setState(() => _filterControl = 0.0);
+  }
+
+  /// Reset filter state when a new track starts (clear filters).
+  /// No-op now — user manages filter via slider. Kept for potential future use.
+  void _resetFadeState() {
+    // Intentionally no-op: filter persists across tracks.
   }
 
   Future<void> _loadSettings() async {
@@ -362,6 +458,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      _librarySearchFocusNode.dispose();
      _mixesSearchFocusNode.dispose();
      _favoritesSearchFocusNode.dispose();
+    // Stop ALS service
+    if (!_isDesktop) {
+      try {
+        _ambientLightService.stop();
+      } catch (_) {}
+    }
     super.dispose();
   }
 
@@ -383,6 +485,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// If omitted, default to alphabetical (allSongs).
   void playSong(Song song, {List<Song>? queue}) async {
     _isTransitioning = true;
+    // Reset fade state so new track starts at full volume
+    if (!_isDesktop) {
+      _resetFadeState();
+    }
     // Track play count and recent order
     setState(() {
       _playCounts[song.id] = (_playCounts[song.id] ?? 0) + 1;
@@ -1626,8 +1732,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 child: AspectRatio(
                   aspectRatio: 1.0,
                   child: _showAlbumArt
-                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes)
-                      : TitlePattern(title: song.title),
+                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes, sunlightFactor: _sunlightFactor)
+                      : TitlePattern(title: song.title, sunlightFactor: _sunlightFactor),
                 ),
               ),
             ),
@@ -2416,6 +2522,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Time position — on its own line above title
+                      Text(
+                        '${fmt(_position)} / ${fmt(_duration)}',
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 10,
+                        ),
+                      ),
                       Text(
                         _currentSong!.title,
                         maxLines: 1,
@@ -2426,58 +2540,58 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _currentSong!.artist ?? 'Unknown Artist',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-
-                          // Volume slider (desktop only)
-                          if (_isDesktop) ...[
-                            SizedBox(
-                              width: 80,
-                              child: SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 2,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
-                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
-                                  activeTrackColor: Colors.white38,
-                                  inactiveTrackColor: Colors.transparent,
-                                  thumbColor: Colors.white54,
-                                  overlayColor: Colors.white.withValues(alpha: 0.1),
-                                ),
-                                child: Slider(
-                                  value: _volume.clamp(0.0, 1.0),
-                                  onChanged: (v) {
-                                    setState(() => _volume = v);
-                                    AudioPlayerService.setVolume(v);
-                                  },
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(width: 8),
-                          ],
-                          Text(
-                            '${fmt(_position)} / ${fmt(_duration)}',
-                            style: const TextStyle(
-                              color: Colors.white38,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        _currentSong!.artist ?? 'Unknown Artist',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
                       ),
                     ],
                   ),
                 ),
+
+                const SizedBox(width: 2),
+
+                       // Filter control: rotary knob with small dot below; tap/double-tap/right-click resets to neutral.
+                            Listener(
+                              onPointerDown: (e) {
+                                if (e.buttons == 2) _resetFilter();
+                              },
+                              child: GestureDetector(
+                                onTap: () {}, // absorb single taps so they don't propagate
+                                onDoubleTap: _resetFilter,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    RotaryFilterKnob(
+                                      value: _filterControl,
+                                      onChanged: (v) => setState(() {
+                                        _filterControl = v;
+                                        AudioPlayerService.setFilterControl(v);
+                                      }),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    // Small dot — tappable to reset filter to neutral
+                                    GestureDetector(
+                                      onTap: _resetFilter,
+                                      child: Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: _filterControl.abs() > 0.02 ? Colors.white : Colors.grey[700],
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                        const SizedBox(width: 8),
 
                 // Skip previous
                 IconButton(
@@ -2530,8 +2644,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   constraints: const BoxConstraints(),
                 ),
 
-                const SizedBox(width: 8),
-
                 // Shuffle All toggle button
                 IconButton(
                   icon: Icon(
@@ -2544,6 +2656,36 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   constraints: const BoxConstraints(),
                   tooltip: 'Shuffle All',
                 ),
+
+                // Volume slider (desktop only) — vertical, far right edge. Drag up to increase, down to decrease.
+                if (_isDesktop) ...[
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 6,
+                    height: 50,
+                    child: RotatedBox(
+                      quarterTurns: -1,
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
+                          activeTrackColor: Colors.white38,
+                          inactiveTrackColor: Colors.transparent,
+                          thumbColor: Colors.white54,
+                          overlayColor: Colors.white.withValues(alpha: 0.1),
+                        ),
+                        child: Slider(
+                          value: _volume.clamp(0.0, 1.0),
+                          onChanged: (v) {
+                            setState(() => _volume = v);
+                            AudioPlayerService.setVolume(v);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(width: 4),
               ],
@@ -3276,6 +3418,82 @@ class _SettingsContentState extends State<_SettingsContent> {
                       'App will close after toggling — reopen to apply. First enable extracts artwork from your music library.',
                       style: TextStyle(fontSize: 10, color: Colors.grey[600], height: 1.5),
                     ),
+                  ),
+
+                  // --- Light detection toggle (Android only) ---
+                  const SizedBox(height: 24),
+                  FutureBuilder<bool>(
+                    future: AppSettings.loadLightDetection(),
+                    builder: (context, snapshot) {
+                      final enabled = snapshot.data ?? true;
+                      return InkWell(
+                        onTap: () async {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(enabled ? 'Light detection disabled' : 'Light detection enabled'),
+                            ),
+                          );
+                          final shell = context.findAncestorStateOfType<_DuskTuneShellState>();
+                          if (shell != null) {
+                            await shell.toggleLightDetection(!enabled);
+                          } else {
+                            // Fallback: use AppSettings directly (for settings page outside shell)
+                            await AppSettings.saveLightDetection(!enabled);
+                          }
+                        },
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: enabled
+                                ? Colors.blueGrey[900]?.withValues(alpha: 0.3)
+                                : Colors.grey[900],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: enabled ? Colors.blueGrey[700]! : Colors.grey[800]!,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.wb_sunny,
+                                color: enabled ? Colors.blueGrey[300] : Colors.white54,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Light Detection',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: enabled ? Colors.blueGrey[300] : Colors.white70,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Adjust tile brightness based on ambient light',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.grey[500],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right,
+                                color: enabled ? Colors.blueGrey[400] : Colors.white38,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
 
                   Padding(

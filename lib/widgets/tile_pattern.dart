@@ -7,10 +7,14 @@ import 'package:flutter/material.dart';
 
 /// Creates a deterministic [Canvas] painter from a string seed (song title).
 /// All colors are strictly shades of black/grey — no color tints.
+///
+/// [sunlightFactor] controls how much the background blends toward mid-grey:
+///   0.0 = normal dark tile, 1.0 = fully desaturated grey (direct sunlight mode).
 class TitlePatternPainter extends CustomPainter {
   final String seed;
+  final double sunlightFactor;
 
-  TitlePatternPainter(this.seed) : _hash = _computeHash(seed);
+  TitlePatternPainter(this.seed, {this.sunlightFactor = 0.0}) : _hash = _computeHash(seed);
 
   static int _computeHash(String s) {
     int h = 0;
@@ -28,6 +32,9 @@ class TitlePatternPainter extends CustomPainter {
     return (state % 10000) / 10000.0;
   }
 
+  /// Linear interpolation with clamping to [0, 1].
+  double _lerp(double a, double b, double t) => a + (b - a) * t.clamp(0.0, 1.0);
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
@@ -38,23 +45,31 @@ class TitlePatternPainter extends CustomPainter {
     final bg1 = 18 + _rand(0).round() * 15;   // 18-33 range
     final bg2 = 8 + _rand(1).round() * 12;     // 8-20 range
 
+    // Blend toward mid-grey (value ~80) when in sunlight.
+    // At sunlightFactor=1.0, bg becomes a uniform mid-grey tile for readability.
+    final blendedBg1 = _lerp(bg1.toDouble(), 75.0 + (_rand(30).round() * 15).toDouble(), sunlightFactor);   // 75-90 grey in sun
+    final blendedBg2 = _lerp(bg2.toDouble(), 65.0 + (_rand(31).round() * 10).toDouble(), sunlightFactor);   // 65-75 grey in sun
+
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
-      Paint()..color = Color.fromRGBO(bg1, bg1, bg1, 1.0),
+      Paint()..color = Color.fromRGBO(blendedBg1.round(), blendedBg1.round(), blendedBg1.round(), 1.0),
     );
 
-    // Subtle gradient overlay
+    // Subtle gradient overlay — also brightened in sunlight
     final gradPaint = Paint()
       ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
           Colors.transparent,
-          Color.fromRGBO(bg2, bg2, bg2, 0.8),
+          Color.fromRGBO(blendedBg2.round(), blendedBg2.round(), blendedBg2.round(), 0.8),
         ],
       ).createShader(Rect.fromLTWH(0, 0, w, h));
 
     canvas.drawRect(Rect.fromLTWH(0, 0, w, h), gradPaint);
+
+    // Boost ring alpha in sunlight so patterns remain visible against lighter bg
+    final alphaBoost = 1.0 + sunlightFactor * 2.5; // up to 3.5x brighter rings
 
     // Concentric circles only — multiple randomized variations
     final variation = _hash % 8;
@@ -66,7 +81,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < ringCount; i++) {
           final t = (i + 1) / (ringCount + 1);
           final radius = w * 0.45 * t;
-          final alpha = baseAlpha * (1 - t * 0.6);
+          final alpha = (baseAlpha * (1 - t * 0.6)) * alphaBoost;
           canvas.drawCircle(
             center,
             radius,
@@ -82,7 +97,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < ringCount; i++) {
           final t = (i + 1) / (ringCount + 1);
           final radius = w * 0.45 * t;
-          final alpha = baseAlpha * math.pow(1 - t, 1.5);
+          final alpha = (baseAlpha * math.pow(1 - t, 1.5)) * alphaBoost;
           canvas.drawCircle(
             center,
             radius,
@@ -98,7 +113,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < ringCount; i++) {
           final t = (i + 1) / (ringCount + 1);
           final radius = w * 0.45 * math.pow(t, 0.6);
-          final alpha = baseAlpha * (1 - t * 0.5);
+          final alpha = (baseAlpha * (1 - t * 0.5)) * alphaBoost;
           canvas.drawCircle(
             center,
             radius,
@@ -114,7 +129,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < ringCount; i++) {
           final t = (i + 1) / (ringCount + 1);
           final radius = w * 0.45 * math.pow(t, 1.4);
-          final alpha = baseAlpha * (0.3 + _rand(40 + i) * 0.7) * (1 - t * 0.4);
+          final alpha = (baseAlpha * (0.3 + _rand(40 + i) * 0.7) * (1 - t * 0.4)) * alphaBoost;
           canvas.drawCircle(
             center,
             radius,
@@ -130,7 +145,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < ringCount; i++) {
           final t = (i + 1) / (ringCount + 1);
           final radius = w * 0.45 * t;
-          final alpha = baseAlpha * (0.4 + _rand(60 + i) * 0.6) * (1 - t * 0.5);
+          final alpha = (baseAlpha * (0.4 + _rand(60 + i) * 0.6) * (1 - t * 0.5)) * alphaBoost;
           canvas.drawCircle(
             center,
             radius,
@@ -149,7 +164,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < ringCount; i++) {
           final t = (i + 1) / (ringCount + 1);
           final radius = w * 0.45 * t;
-          final alpha = baseAlpha * (1 - t * 0.6);
+          final alpha = (baseAlpha * (1 - t * 0.6)) * alphaBoost;
           canvas.drawCircle(
             offCenter,
             radius,
@@ -165,7 +180,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < ringCount; i++) {
           final t = (i + 1) / (ringCount + 1);
           final radius = w * 0.45 * t;
-          final alpha = baseAlpha * (1 - t * 0.55);
+          final alpha = (baseAlpha * (1 - t * 0.55)) * alphaBoost;
           final isThick = i % 2 == 0;
           canvas.drawCircle(
             center,
@@ -183,7 +198,7 @@ class TitlePatternPainter extends CustomPainter {
         for (int i = 0; i < minRings; i++) {
           final t = (i + 1) / (minRings + 1);
           final radius = w * 0.45 * t;
-          final alpha = baseAlpha * (1 - t * 0.5);
+          final alpha = (baseAlpha * (1 - t * 0.5)) * alphaBoost;
           canvas.drawCircle(
             center,
             radius,
@@ -198,7 +213,7 @@ class TitlePatternPainter extends CustomPainter {
           center,
           w * 0.03,
           Paint()
-            ..color = Colors.white.withValues(alpha: baseAlpha * 0.8)
+            ..color = Colors.white.withValues(alpha: baseAlpha * 0.8 * alphaBoost)
             ..style = PaintingStyle.fill,
         );
         break;
@@ -213,7 +228,7 @@ class TitlePatternPainter extends CustomPainter {
           style: TextStyle(
             fontSize: w * 0.55,
             fontWeight: FontWeight.w100,
-            color: Colors.white.withValues(alpha: 0.04 + _rand(80) * 0.05),
+            color: Colors.white.withValues(alpha: (0.04 + _rand(80) * 0.05) * alphaBoost),
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -227,19 +242,20 @@ class TitlePatternPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(TitlePatternPainter oldDelegate) => seed != oldDelegate.seed;
+  bool shouldRepaint(TitlePatternPainter oldDelegate) => seed != oldDelegate.seed || sunlightFactor != oldDelegate.sunlightFactor;
 }
 
 /// Widget that displays a monochrome geometric pattern based on song title.
 class TitlePattern extends StatelessWidget {
   final String title;
+  final double sunlightFactor;
 
-  const TitlePattern({super.key, required this.title});
+  const TitlePattern({super.key, required this.title, this.sunlightFactor = 0.0});
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: TitlePatternPainter(title),
+      painter: TitlePatternPainter(title, sunlightFactor: sunlightFactor),
       size: Size.infinite,
     );
   }
@@ -249,11 +265,13 @@ class TitlePattern extends StatelessWidget {
 class AlbumArtTile extends StatelessWidget {
   final String title;
   final Uint8List? artworkBytes;
+  final double sunlightFactor;
 
   const AlbumArtTile({
     super.key,
     required this.title,
     this.artworkBytes,
+    this.sunlightFactor = 0.0,
   });
 
   @override
@@ -262,10 +280,10 @@ class AlbumArtTile extends StatelessWidget {
       return Image.memory(
         artworkBytes!,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => TitlePattern(title: title),
+        errorBuilder: (_, __, ___) => TitlePattern(title: title, sunlightFactor: sunlightFactor),
       );
     }
-    return TitlePattern(title: title);
+    return TitlePattern(title: title, sunlightFactor: sunlightFactor);
   }
 }
 
