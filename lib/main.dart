@@ -2540,47 +2540,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _currentSong!.artist ?? 'Unknown Artist',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-
-                            // Volume slider (desktop only)
-                              if (_isDesktop) ...[
-                                SizedBox(
-                                  width: 80,
-                                  child: SliderTheme(
-                                data: SliderTheme.of(context).copyWith(
-                                  trackHeight: 6,
-                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                                  activeTrackColor: Colors.white38,
-                                  inactiveTrackColor: Colors.transparent,
-                                  thumbColor: Colors.white54,
-                                  overlayColor: Colors.white.withValues(alpha: 0.1),
-                                ),
-                                child: Slider(
-                                  value: _volume.clamp(0.0, 1.0),
-                                  onChanged: (v) {
-                                    setState(() => _volume = v);
-                                    AudioPlayerService.setVolume(v);
-                                  },
-                                ),
-                              ),
-                            ),
-
-                            const SizedBox(width: 8),
-                          ],
-                        ],
+                      Text(
+                        _currentSong!.artist ?? 'Unknown Artist',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
                       ),
                     ],
                   ),
@@ -2689,6 +2656,36 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   constraints: const BoxConstraints(),
                   tooltip: 'Shuffle All',
                 ),
+
+                // Volume slider (desktop only) — vertical, far right edge. Drag up to increase, down to decrease.
+                if (_isDesktop) ...[
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 6,
+                    height: 50,
+                    child: RotatedBox(
+                      quarterTurns: -1,
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 8),
+                          activeTrackColor: Colors.white38,
+                          inactiveTrackColor: Colors.transparent,
+                          thumbColor: Colors.white54,
+                          overlayColor: Colors.white.withValues(alpha: 0.1),
+                        ),
+                        child: Slider(
+                          value: _volume.clamp(0.0, 1.0),
+                          onChanged: (v) {
+                            setState(() => _volume = v);
+                            AudioPlayerService.setVolume(v);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(width: 4),
               ],
