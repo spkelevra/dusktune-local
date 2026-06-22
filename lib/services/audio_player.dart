@@ -22,9 +22,6 @@ class MpvAudioHandler {
   /// after a track change (mpv clears DSP chain on file load).
   double _filterControlValue = 0.0;
 
-  /// Track complete subscription.
-  StreamSubscription<MpvFileEndedEvent>? _endFileSub;
-
   /// Flag set while playSong is in flight. endFile events that arrive during
   /// a transition are ignored — they're caused by the previous file being
   /// replaced, not by it actually finishing playback.
@@ -39,16 +36,27 @@ class MpvAudioHandler {
       highpass: const HighpassSettings(enabled: true, f: 20.0),
     ));
 
-    // Listen for track completion — only fire callback when the loaded file
-    // actually plays through to its end (not when replaced mid-load).
-    _endFileSub = _player.stream.endFile.listen((event) {
-      debugPrint('MpvAudioHandler: endFile event, reason=${event.reason}');
-      if (_isTransitioning) {
-        debugPrint('  -> suppressed (transitioning)');
-        return;
-      }
+    // Listen for track completion via the `completed` stream — this is the
+    // authoritative signal provided by mpv_audio_kit that a track has finished
+    // playing (equivalent to just_audio's ProcessingState.completed).
+    _player.stream.completed.listen((done) {
+      if (!done || _isTransitioning) return;
+      debugPrint('MpvAudioHandler: completed=true, firing onTrackComplete');
       if (onTrackComplete != null) {
         onTrackComplete!();
+      } else {
+        debugPrint('  -> WARNING: onTrackComplete callback is NULL');
+      }
+    });
+
+    // Also listen for endFile events — fire on natural EOF or error.
+    _player.stream.endFile.listen((event) {
+      if (_isTransitioning) return;
+      // Only fire on eof (natural end) or error — not stop/quit (file replacement).
+      debugPrint('MpvAudioHandler: endFile reason=${event.reason}');
+      if ((event.reason == MpvEndFileReason.eof || event.reason == MpvEndFileReason.error)) {
+        debugPrint('  -> firing onTrackComplete from endFile');
+        onTrackComplete?.call();
       }
     });
 
@@ -96,6 +104,7 @@ class MpvAudioHandler {
   }
 
   Future<void> stop() async {
+    debugPrint('MpvAudioHandler: stop called');
     await _player.seek(Duration.zero);
     await _player.pause();
   }
@@ -321,7 +330,6 @@ class MpvAudioHandler {
   }
 
   void dispose() {
-    _endFileSub?.cancel();
     _player.dispose();
   }
 }
@@ -342,6 +350,7 @@ class AudioPlayerService {
 
   /// Set a callback for when the current track finishes playing.
   static void setOnTrackComplete(void Function()? callback) {
+    debugPrint('AudioPlayerService: setOnTrackComplete(${callback != null ? "callback" : "null"})');
     _handler?.onTrackComplete = callback;
   }
 
@@ -356,6 +365,7 @@ class AudioPlayerService {
 
   /// Play a song.
   static Future<void> playSong(Song song) async {
+    debugPrint('AudioPlayerService: playSong(${song.title})');
     await _handler?.playSong(song);
   }
 
@@ -381,6 +391,7 @@ class AudioPlayerService {
 
   /// Stop playback.
   static Future<void> stop() async {
+    debugPrint('AudioPlayerService: stop called');
     await _handler?.stop();
   }
 
