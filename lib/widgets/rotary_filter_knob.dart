@@ -50,7 +50,13 @@ class _RotaryFilterKnobState extends State<RotaryFilterKnob> {
     if (widget.onChanged == null || _dragOrigin == null) return;
     // Horizontal drag → angle. Sensitivity: ~150 px ≈ full ±135° sweep.
     const double sensitivity = (_maxAngle * 2) / 150.0;
-    setState(() => _angle += d.delta.dx * sensitivity);
+
+    final newAngle = math.max(-_maxAngle, math.min(_maxAngle, _angle + d.delta.dx * sensitivity));
+
+    // Only update if angle actually changed (i.e. not blocked by cap)
+    if (newAngle == _angle) return;
+
+    setState(() => _angle = newAngle);
     widget.onChanged!(_valueFromAngle(_angle));
   }
 
@@ -94,11 +100,11 @@ class _KnobPainter extends CustomPainter {
 
     // Active arc — portion of the track that lights up proportional to |angle|
     if (activeLevel > 0.01) {
-      final sweep = activeLevel * math.pi;
+      final sweep = angle.abs(); // angular distance from top to current position
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: r),
-        -math.pi / 2 + (angle < 0 ? -sweep : 0), // start from top, going left or right
-        sweep * (angle >= 0 ? 1 : -1),
+        -math.pi / 2, // always start at top (neutral)
+        sweep * (angle >= 0 ? 1 : -1), // positive=right/HPF, negative=left/LPF
         false,
         Paint()
           ..color = Colors.white.withAlpha((40 + activeLevel * 215).round())
@@ -111,8 +117,10 @@ class _KnobPainter extends CustomPainter {
     // Indicator line (rotary handle) — points outward from center at current angle
     final tipAngle = -math.pi / 2 + angle;   // -90° is top (neutral); positive goes right/clockwise
     final innerR = r * 0.5;
-    final outerX = center.dx + math.cos(tipAngle) * r;
-    final outerY = center.dy + math.sin(tipAngle) * r;
+    // Shrink outer radius so line stays within track arc, not extending past it
+    final outerR = r - 4.0;
+    final outerX = center.dx + math.cos(tipAngle) * outerR;
+    final outerY = center.dy + math.sin(tipAngle) * outerR;
     final innerX = center.dx + math.cos(tipAngle) * innerR;
     final innerY = center.dy + math.sin(tipAngle) * innerR;
 
