@@ -13,6 +13,7 @@ import 'services/music_library.dart';
 import 'services/music_scanner.dart' as desktop_scanner;
 import 'services/app_settings.dart';
 import 'services/ambient_light_service.dart';
+import 'widgets/rotary_filter_knob.dart';
 import 'widgets/tile_pattern.dart';
 import 'dart:async';
 
@@ -2545,57 +2546,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             ),
                           ),
 
-                          // Filter bar (desktop only): left = LPF, center = none, right = HPF; tap "Filter" to reset.
-                          if (_isDesktop) ...[
-                            Row(
-                              children: [
-                                // Reset-on-tap label with generous hit area
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                                  child: GestureDetector(
-                                    onTap: _resetFilter,
-                                    behavior: HitTestBehavior.opaque,
-                                    child: Text(
-                                      'Filter',
-                                      style: TextStyle(
-                                        color: _filterControl.abs() > 0.02 ? Colors.white : Colors.white54,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                            // Volume slider (desktop only)
+                              if (_isDesktop) ...[
                                 SizedBox(
-                                  width: 70,
+                                  width: 80,
                                   child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 6,
-                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                                      activeTrackColor: Colors.white70,
-                                      inactiveTrackColor: Colors.transparent,
-                                      thumbColor: Colors.white,
-                                      overlayColor: Colors.white.withValues(alpha: 0.12),
-                                    ),
-                                    child: Slider(
-                                      value: _filterControl.clamp(-1.0, 1.0),
-                                      min: -1.0,
-                                      max: 1.0,
-                                      onChanged: (v) => _onFilterChanged(v),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(height: 4),
-                          ],
-
-                          // Volume slider (desktop only)
-                          if (_isDesktop) ...[
-                            SizedBox(
-                              width: 80,
-                              child: SliderTheme(
                                 data: SliderTheme.of(context).copyWith(
                                   trackHeight: 6,
                                   thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
@@ -2630,49 +2585,45 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   ),
                 ),
 
-                const SizedBox(width: 8),
+                const SizedBox(width: 2),
 
-                // Filter slider (Android only, desktop below): left = LPF, center = none, right = HPF; tap "Filter" to reset.
-                if (!_isDesktop) ...[
-                  // Reset-on-tap label with generous hit area
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: GestureDetector(
-                      onTap: _resetFilter,
-                      behavior: HitTestBehavior.opaque,
-                      child: Text(
-                        'Filter',
-                        style: TextStyle(
-                          color: _filterControl.abs() > 0.02 ? Colors.white : Colors.white54,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 70,
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 6,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                        activeTrackColor: Colors.white70,
-                        inactiveTrackColor: Colors.transparent,
-                        thumbColor: Colors.white,
-                        overlayColor: Colors.white.withValues(alpha: 0.12),
-                      ),
-                      child: Slider(
-                        value: _filterControl.clamp(-1.0, 1.0),
-                        min: -1.0,
-                        max: 1.0,
-                        onChanged: (v) => _onFilterChanged(v),
-                      ),
-                    ),
-                  ),
+                       // Filter control: rotary knob with small dot below; tap/double-tap/right-click resets to neutral.
+                            Listener(
+                              onPointerDown: (e) {
+                                if (e.buttons == 2) _resetFilter();
+                              },
+                              child: GestureDetector(
+                                onTap: () {}, // absorb single taps so they don't propagate
+                                onDoubleTap: _resetFilter,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    RotaryFilterKnob(
+                                      value: _filterControl,
+                                      onChanged: (v) => setState(() {
+                                        _filterControl = v;
+                                        AudioPlayerService.setFilterControl(v);
+                                      }),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    // Small dot — tappable to reset filter to neutral
+                                    GestureDetector(
+                                      onTap: _resetFilter,
+                                      child: Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: _filterControl.abs() > 0.02 ? Colors.white : Colors.grey[700],
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
 
-                  const SizedBox(width: 8),
-                ],
+                        const SizedBox(width: 8),
 
                 // Skip previous
                 IconButton(
