@@ -393,11 +393,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     });
   }
 
-  // ─── Filter Control (Android only) — continuous slider [-1, +1] ──
+  // ─── Filter Control — continuous slider [-1, +1] ──
 
   /// Apply filter control change from the UI slider — fire-and-forget for lowest latency.
   void _onFilterChanged(double value) {
-    if (_isDesktop) return;
     _filterControl = value;
     // Don't await — let each tick run concurrently so drag feels immediate.
     AudioPlayerService.setFilterControl(value);
@@ -405,7 +404,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   /// Reset filter to neutral when the 'Filter' label is tapped.
   Future<void> _resetFilter() async {
-    if (_isDesktop) return;
     await AudioPlayerService.clearFilters();
     setState(() => _filterControl = 0.0);
   }
