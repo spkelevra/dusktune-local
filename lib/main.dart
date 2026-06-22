@@ -2522,6 +2522,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Time position — on its own line above title
+                      Text(
+                        '${fmt(_position)} / ${fmt(_duration)}',
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 10,
+                        ),
+                      ),
                       Text(
                         _currentSong!.title,
                         maxLines: 1,
@@ -2572,13 +2580,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
                             const SizedBox(width: 8),
                           ],
-                          Text(
-                            '${fmt(_position)} / ${fmt(_duration)}',
-                            style: const TextStyle(
-                              color: Colors.white38,
-                              fontSize: 10,
-                            ),
-                          ),
                         ],
                       ),
                     ],
