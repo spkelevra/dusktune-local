@@ -941,7 +941,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               children: [
                 const Icon(Icons.blur_on_rounded, size: 18, color: Colors.white70),
                 const SizedBox(width: 6),
-                Text('Smoothing: \${(_vizSmoothing * 100).round()}%', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                Text("Smoothing: ${(_vizSmoothing * 100).round()}%", style: TextStyle(color: Colors.white70, fontSize: 12)),
               ],
             ),
             Slider(
