@@ -15,7 +15,10 @@ dependencies:
   shared_preferences: ^2.3.2
   mpv_audio_kit:
     git: https://github.com/spkelevra/mpv_audio_kit.git
-  on_audio_query: ^2.9.0
+  on_audio_query:
+    git:
+      url: https://github.com/spkelevra/on_audio_query.git
+      path: packages/on_audio_query
   id3: 1.0.2
   path: ^1.9.1
   path_provider: ^2.1.5
@@ -27,6 +30,12 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+
+dependency_overrides:
+  on_audio_query_android:
+    git:
+      url: https://github.com/spkelevra/on_audio_query.git
+      path: packages/on_audio_query_android
 
 flutter:
   uses-material-design: true
