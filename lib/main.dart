@@ -2517,6 +2517,36 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
+                // Volume slider (desktop only) — vertical, far left edge. Drag up to increase, down to decrease.
+                if (_isDesktop) ...[
+                  SizedBox(
+                    width: 6,
+                    height: 50,
+                    child: RotatedBox(
+                      quarterTurns: -1,
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 3.5),
+                           overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
+                          activeTrackColor: Colors.white38,
+                          inactiveTrackColor: Colors.transparent,
+                          thumbColor: Colors.white54,
+                          overlayColor: Colors.white.withValues(alpha: 0.1),
+                        ),
+                        child: Slider(
+                          value: _volume.clamp(0.0, 1.0),
+                          onChanged: (v) {
+                            setState(() => _volume = v);
+                            AudioPlayerService.setVolume(v);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+
                 // Song info (expandable)
                 Expanded(
                   child: Column(
@@ -2645,7 +2675,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   constraints: const BoxConstraints(),
                 ),
 
-                // Shuffle All toggle button
+                // Shuffle All toggle button — extra space from skip next
+                const SizedBox(width: 16),
                 IconButton(
                   icon: Icon(
                     Icons.shuffle,
@@ -2657,36 +2688,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   constraints: const BoxConstraints(),
                   tooltip: 'Shuffle All',
                 ),
-
-                // Volume slider (desktop only) — vertical, far right edge. Drag up to increase, down to decrease.
-                if (_isDesktop) ...[
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 6,
-                    height: 50,
-                    child: RotatedBox(
-                      quarterTurns: -1,
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 3.5),
-                           overlayShape: const RoundSliderOverlayShape(overlayRadius: 6),
-                          activeTrackColor: Colors.white38,
-                          inactiveTrackColor: Colors.transparent,
-                          thumbColor: Colors.white54,
-                          overlayColor: Colors.white.withValues(alpha: 0.1),
-                        ),
-                        child: Slider(
-                          value: _volume.clamp(0.0, 1.0),
-                          onChanged: (v) {
-                            setState(() => _volume = v);
-                            AudioPlayerService.setVolume(v);
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
 
                 const SizedBox(width: 4),
               ],
