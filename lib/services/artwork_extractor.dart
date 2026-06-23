@@ -8,7 +8,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:on_audio_query_pluse/on_audio_query.dart';
 import 'package:id3/id3.dart' as id3_lib;
 import '../models/song.dart';
 import 'app_settings.dart';
