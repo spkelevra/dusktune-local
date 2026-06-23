@@ -453,6 +453,9 @@ class AudioPlayerService {
 
   /// Visualizer style: "bars" (default), "wave", or "dots".
   static String _vizStyle = 'bars';
+  static double _vizIntensity = 1.0;
+  static double get vizIntensity => _vizIntensity;
+  static set vizIntensity(double v) => _vizIntensity = v.clamp(0.0, 2.0);
   static String get vizStyle => _vizStyle;
   static set vizStyle(String s) => _vizStyle = s;
 

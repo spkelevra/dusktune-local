@@ -121,6 +121,15 @@ class AppSettings {
   static Future<void> saveVizStyle(String style) async {
     await PersistentStorage.saveVizStyle(style);
   }
+  /// Visualizer intensity: 0.0 (minimal) to 2.0 (amplified), default 1.0.
+
+  static Future<double> loadVizIntensity() async {
+    return PersistentStorage.loadVizIntensity();
+  }
+
+  static Future<void> saveVizIntensity(double intensity) async {
+    await PersistentStorage.saveVizIntensity(intensity);
+  }
   // -- Artwork cache --
 
   /// Get cached artwork for a song, or null if not available.

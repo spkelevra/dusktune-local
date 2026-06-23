@@ -53,6 +53,7 @@ class PersistentStorage {
   static const String _kLightDetection = 'light_detection.json';
   static const String _kVizEnabled = 'viz_enabled.json';
   static const String _kVizStyle = 'viz_style.json';
+  static const String _kVizIntensity = 'viz_intensity.json';
 
   /// Subdirectory for cached album artwork thumbnails.
   static const String _artworkSubDir = 'artwork';
@@ -478,6 +479,26 @@ class PersistentStorage {
       return;
     }
     await _writeJson(_kVizStyle, style);
+  }
+  /// Visualizer intensity: 0.0 (off/minimal) to 2.0 (amplified), default 1.0.
+
+  static Future<double> loadVizIntensity() async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getDouble('viz_intensity') ?? 1.0;
+    }
+    final data = await _readJsonAsync(_kVizIntensity);
+    if (data is double || data is int) return (data as num).toDouble().clamp(0.0, 2.0);
+    return 1.0;
+  }
+
+  static Future<void> saveVizIntensity(double intensity) async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('viz_intensity', intensity.clamp(0.0, 2.0));
+      return;
+    }
+    await _writeJson(_kVizIntensity, intensity.clamp(0.0, 2.0));
   }
   // -- Clear all persistent data --
 

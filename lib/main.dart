@@ -209,8 +209,9 @@ enum _VizStyle { bars, wave, dots }
 class _BarsVizPainter extends CustomPainter {
   final FftFrame? frame;
   final bool isPlaying;
+  final double intensity;
 
-  const _BarsVizPainter({this.frame, this.isPlaying = false});
+  const _BarsVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -231,9 +232,10 @@ class _BarsVizPainter extends CustomPainter {
       }
       if (count > 0) value /= count;
 
-      final barHeight = math.max(1.0, value * size.height);
+      final effectiveValue = math.min(1.0, value * intensity);
+      final barHeight = math.max(1.0, effectiveValue * size.height);
 
-      final grey = Colors.grey[350]!.withOpacity(math.min(1.0, 0.4 + value * 0.6));
+      final grey = Colors.grey[350]!.withOpacity(math.min(1.0, 0.4 + effectiveValue * 0.6));
 
       canvas.drawRect(
         Rect.fromLTWH(i * (barWidth + 1.0), size.height - barHeight, barWidth, barHeight),
@@ -243,15 +245,16 @@ class _BarsVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_BarsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying;
+  bool shouldRepaint(_BarsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying || intensity != old.intensity;
 }
 
 /// Waveform-style visualizer — smooth wave envelope driven by FFT bands.
 class _WaveVizPainter extends CustomPainter {
   final FftFrame? frame;
   final bool isPlaying;
+  final double intensity;
 
-  const _WaveVizPainter({this.frame, this.isPlaying = false});
+  const _WaveVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -273,7 +276,8 @@ class _WaveVizPainter extends CustomPainter {
       if (count > 0) value /= count;
 
       final x = (i / bandCount) * size.width;
-      final y = size.height * 0.5 - value * size.height * 0.4;
+      final effectiveValue = math.min(1.0, value * intensity);
+      final y = size.height * 0.5 - effectiveValue * size.height * 0.4;
 
       if (i == 0) {
         path.moveTo(x, y);
@@ -294,7 +298,8 @@ class _WaveVizPainter extends CustomPainter {
       if (count > 0) value /= count;
 
       final x = ((i-1) / bandCount) * size.width;
-      final y = size.height * 0.5 + value * size.height * 0.4;
+      final effectiveValueMirror = math.min(1.0, value * intensity);
+      final y = size.height * 0.5 + effectiveValueMirror * size.height * 0.4;
       mirrorPath.lineTo(x, y);
     }
     path.addPath(mirrorPath, Offset.zero);
@@ -303,15 +308,16 @@ class _WaveVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_WaveVizPainter old) => frame != old.frame || isPlaying != old.isPlaying;
+  bool shouldRepaint(_WaveVizPainter old) => frame != old.frame || isPlaying != old.isPlaying || intensity != old.intensity;
 }
 
 /// Dot-matrix visualizer — grid of dots whose brightness follows FFT bands.
 class _DotsVizPainter extends CustomPainter {
   final FftFrame? frame;
   final bool isPlaying;
+  final double intensity;
 
-  const _DotsVizPainter({this.frame, this.isPlaying = false});
+  const _DotsVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -322,7 +328,7 @@ class _DotsVizPainter extends CustomPainter {
     const rows = 8;
     final step = (bands.length / (cols * rows)).ceil();
 
-    final dotRadius = math.min(size.width / (cols * 2.5), size.height / (rows * 2.5));
+    final baseDotRadius = math.min(size.width / (cols * 2.5), size.height / (rows * 2.5));
 
     for (int col = 0; col < cols && col * step < bands.length; col++) {
       for (int row = 0; row < rows; row++) {
@@ -337,9 +343,11 @@ class _DotsVizPainter extends CustomPainter {
         }
         if (count > 0) value /= count;
 
-        final opacity = math.max(0.1, math.min(1.0, 0.3 + value * 0.7));
+        final effectiveValueDots = math.min(1.0, value * intensity);
+        final opacity = math.max(0.1, math.min(1.0, 0.3 + effectiveValueDots * 0.7));
+        final dotRadius = baseDotRadius * (0.5 + effectiveValueDots * 1.0);
         final x = (col + 0.5) * (size.width / cols);
-        final y = size.height - (row + 0.5) * (size.height / rows);
+        final y = size.height - (row + 0.5) * (size.height / rows) - effectiveValueDots * baseDotRadius;
 
         canvas.drawCircle(Offset(x, y), dotRadius, Paint()..color = Colors.grey[350]!.withOpacity(opacity));
       }
@@ -347,7 +355,7 @@ class _DotsVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DotsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying;
+  bool shouldRepaint(_DotsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying || intensity != old.intensity;
 }
 
 /// Isolated visualizer tile — manages its own FFT subscription.
@@ -402,11 +410,67 @@ class _VizTileState extends State<_VizTile> with SingleTickerProviderStateMixin 
   }
 
   CustomPainter _vizPainterForStyle(FftFrame? f) {
+    final intensity = AudioPlayerService.vizIntensity;
     switch (_style) {
-      case _VizStyle.wave:   return _WaveVizPainter(frame: f);
-      case _VizStyle.dots:   return _DotsVizPainter(frame: f);
-      default:               return _BarsVizPainter(frame: f, isPlaying: AudioPlayerService.isPlaying);
+      case _VizStyle.wave:   return _WaveVizPainter(frame: f, intensity: intensity);
+      case _VizStyle.dots:   return _DotsVizPainter(frame: f, intensity: intensity);
+      default:               return _BarsVizPainter(frame: f, isPlaying: AudioPlayerService.isPlaying, intensity: intensity);
     }
+  }
+}
+
+
+/// Intensity slider widget with real-time percentage label.
+class _VizIntensitySlider extends StatefulWidget {
+  final double initialValue;
+  final ValueChanged<double> onSaved;
+
+  const _VizIntensitySlider({required this.initialValue, required this.onSaved});
+
+  @override
+  State<_VizIntensitySlider> createState() => _VizIntensitySliderState();
+}
+
+class _VizIntensitySliderState extends State<_VizIntensitySlider> {
+  double _value = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.initialValue;
+  }
+
+  void _onChanged(double v) {
+    setState(() => _value = v);
+    AppSettings.saveVizIntensity(v).then((_) {
+      AudioPlayerService.vizIntensity = v;
+    });
+    widget.onSaved(v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.tune_rounded, size: 18, color: Colors.white70),
+            const SizedBox(width: 6),
+            Text('Intensity: ${(_value * 100).round()}%', style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
+        Slider(
+          value: _value,
+          min: 0.0,
+          max: 2.0,
+          divisions: 40,
+          onChanged: _onChanged,
+        ),
+      ],
+    );
   }
 }
 
@@ -467,6 +531,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   StreamSubscription<FftFrame>? _fftSub;
   /// Visualizer style: "bars", "wave", or "dots"
   String _vizStyle = 'bars';
+  /// Visualizer intensity: 0.0 to 2.0, default 1.0
+  double _vizIntensity = 1.0;
 
 
 
@@ -651,6 +717,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      final showAlbumArt = await AppSettings.loadShowAlbumArt();
      final vizEnabled = await AppSettings.loadVizEnabled();
      final vizStyle = await AppSettings.loadVizStyle();
+     final vizIntensity = await AppSettings.loadVizIntensity();
      if (mounted) {
        setState(() {
          _appName = appName;
@@ -659,6 +726,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
          _showAlbumArt = showAlbumArt;
         _vizEnabled = vizEnabled;
         _vizStyle = vizStyle;
+        _vizIntensity = vizIntensity;
        });
      }
     // Load pinned grid after settings are loaded
@@ -725,6 +793,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             _vizStyleOption('bars', Icons.bar_chart_rounded),
             _vizStyleOption('wave', Icons.show_chart_rounded),
             _vizStyleOption('dots', Icons.grid_view_rounded),
+            const SizedBox(height: 12),
+            _VizIntensitySlider(initialValue: _vizIntensity, onSaved: (v) {
+              setState(() => _vizIntensity = v);
+            }),
           ],
         ),
       ),
