@@ -1351,7 +1351,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                               );
                             },
                             icon: const Icon(
-                              Icons.grid_view,
+                              PhosphorIcons.gridNineFill,
                               size: 16,
                               color: Colors.white54,
                             ),
