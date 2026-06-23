@@ -16,6 +16,7 @@ import 'services/app_settings.dart';
 import 'services/ambient_light_service.dart';
 import 'widgets/rotary_filter_knob.dart';
 import 'widgets/tile_pattern.dart';
+import 'package:mpv_audio_kit/mpv_audio_kit.dart';
 import 'dart:async';
 
 /// Returns true if running on a desktop platform (Windows, macOS, Linux).
@@ -201,6 +202,215 @@ class _AppRootState extends State<AppRoot> {
   }
 }
 
+
+/// Visualizer style enum — persisted as string.
+enum _VizStyle { bars, wave, dots }
+
+class _BarsVizPainter extends CustomPainter {
+  final FftFrame? frame;
+  final bool isPlaying;
+
+  const _BarsVizPainter({this.frame, this.isPlaying = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (frame == null || frame!.bands.isEmpty) return;
+
+    final bands = frame!.bands;
+    const bandCount = 32;
+    final step = (bands.length / bandCount).ceil();
+
+    final barWidth = size.width / bandCount - 1.0;
+
+    for (int i = 0; i < bandCount && i * step < bands.length; i++) {
+      double value = 0;
+      int count = 0;
+      for (int j = 0; j < step && i * step + j < bands.length; j++) {
+        value += bands[i * step + j];
+        count++;
+      }
+      if (count > 0) value /= count;
+
+      final barHeight = math.max(1.0, value * size.height);
+
+      final grey = Colors.grey[350]!.withOpacity(math.min(1.0, 0.4 + value * 0.6));
+
+      canvas.drawRect(
+        Rect.fromLTWH(i * (barWidth + 1.0), size.height - barHeight, barWidth, barHeight),
+        Paint()..color = grey,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BarsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying;
+}
+
+/// Waveform-style visualizer — smooth wave envelope driven by FFT bands.
+class _WaveVizPainter extends CustomPainter {
+  final FftFrame? frame;
+  final bool isPlaying;
+
+  const _WaveVizPainter({this.frame, this.isPlaying = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (frame == null || frame!.bands.isEmpty) return;
+
+    final bands = frame!.bands;
+    const bandCount = 32;
+    final step = (bands.length / bandCount).ceil();
+
+    final path = Path()..moveTo(0, size.height * 0.5);
+
+    for (int i = 0; i < bandCount && i * step < bands.length; i++) {
+      double value = 0;
+      int count = 0;
+      for (int j = 0; j < step && i * step + j < bands.length; j++) {
+        value += bands[i * step + j];
+        count++;
+      }
+      if (count > 0) value /= count;
+
+      final x = (i / bandCount) * size.width;
+      final y = size.height * 0.5 - value * size.height * 0.4;
+
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    // Mirror the bottom half for symmetry
+    final mirrorPath = Path()..moveTo(size.width, size.height * 0.5);
+    for (int i = bandCount - 1; i >= 0 && (i-1) * step < bands.length; i--) {
+      double value = 0;
+      int count = 0;
+      for (int j = 0; j < step && i * step + j < bands.length; j++) {
+        value += bands[i * step + j];
+        count++;
+      }
+      if (count > 0) value /= count;
+
+      final x = ((i-1) / bandCount) * size.width;
+      final y = size.height * 0.5 + value * size.height * 0.4;
+      mirrorPath.lineTo(x, y);
+    }
+    path.addPath(mirrorPath, Offset.zero);
+
+    canvas.drawPath(path, Paint()..color = Colors.grey[350]!.withOpacity(0.8)..strokeWidth = 1.5);
+  }
+
+  @override
+  bool shouldRepaint(_WaveVizPainter old) => frame != old.frame || isPlaying != old.isPlaying;
+}
+
+/// Dot-matrix visualizer — grid of dots whose brightness follows FFT bands.
+class _DotsVizPainter extends CustomPainter {
+  final FftFrame? frame;
+  final bool isPlaying;
+
+  const _DotsVizPainter({this.frame, this.isPlaying = false});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (frame == null || frame!.bands.isEmpty) return;
+
+    final bands = frame!.bands;
+    const cols = 16;
+    const rows = 8;
+    final step = (bands.length / (cols * rows)).ceil();
+
+    final dotRadius = math.min(size.width / (cols * 2.5), size.height / (rows * 2.5));
+
+    for (int col = 0; col < cols && col * step < bands.length; col++) {
+      for (int row = 0; row < rows; row++) {
+        final bandIdx = col * step + row * step ~/ rows;
+        if (bandIdx >= bands.length) continue;
+
+        double value = 0;
+        int count = 0;
+        for (int j = 0; j < step && bandIdx + j < bands.length; j++) {
+          value += bands[bandIdx + j];
+          count++;
+        }
+        if (count > 0) value /= count;
+
+        final opacity = math.max(0.1, math.min(1.0, 0.3 + value * 0.7));
+        final x = (col + 0.5) * (size.width / cols);
+        final y = size.height - (row + 0.5) * (size.height / rows);
+
+        canvas.drawCircle(Offset(x, y), dotRadius, Paint()..color = Colors.grey[350]!.withOpacity(opacity));
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DotsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying;
+}
+
+/// Isolated visualizer tile — manages its own FFT subscription.
+/// Rebuilds independently from the shell, so grid tiles don't re-layout at 30 Hz on Android.
+class _VizTile extends StatefulWidget {
+  final String songTitle;
+  const _VizTile({required this.songTitle, super.key});
+
+  @override
+  State<_VizTile> createState() => _VizTileState();
+}
+
+class _VizTileState extends State<_VizTile> with SingleTickerProviderStateMixin {
+  FftFrame? _frame;
+  StreamSubscription<FftFrame>? _sub;
+  late final AnimationController _fadeCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _sub = AudioPlayerService.fftStream.listen((f) => setState(() => _frame = f));
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _fadeCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: CurvedAnimation(
+        parent: _fadeCtrl..forward(),
+        curve: Curves.easeOut,
+      ),
+      child: RepaintBoundary(
+        child: CustomPaint(painter: _vizPainterForStyle(_frame)),
+      ),
+    );
+  }
+
+  _VizStyle get _style {
+    final s = AudioPlayerService.vizStyle;
+    switch (s) {
+      case 'wave': return _VizStyle.wave;
+      case 'dots': return _VizStyle.dots;
+      default: return _VizStyle.bars;
+    }
+  }
+
+  CustomPainter _vizPainterForStyle(FftFrame? f) {
+    switch (_style) {
+      case _VizStyle.wave:   return _WaveVizPainter(frame: f);
+      case _VizStyle.dots:   return _DotsVizPainter(frame: f);
+      default:               return _BarsVizPainter(frame: f, isPlaying: AudioPlayerService.isPlaying);
+    }
+  }
+}
+
+
 /// Main app shell with top nav bar and bottom player.
 class DuskTuneShell extends StatefulWidget {
   final List<Song> allSongs;
@@ -249,6 +459,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   // Album art display toggle
   bool _showAlbumArt = false;
+  /// Visualizer toggle — when true, the selected grid tile shows a spectrum analyzer
+  bool _vizEnabled = false;
+  /// Latest FFT frame from mpv — updated at ~30 Hz via stream subscription (kept for fallback)
+  FftFrame? _latestFftFrame;
+  /// Subscription to mpv's FFT stream — must be disposed in dispose()
+  StreamSubscription<FftFrame>? _fftSub;
+  /// Visualizer style: "bars", "wave", or "dots"
+  String _vizStyle = 'bars';
+
+
 
   // Sunlight factor from ALS — drives tile background brightness (0.0–1.0)
   double _sunlightFactor = 0.0;
@@ -302,6 +522,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       });
     }
     _listenToPlayback();
+    // Subscribe to FFT stream for visualizer — updates _latestFftFrame at ~30 Hz
+    if (_vizEnabled) {
+      _fftSub = AudioPlayerService.fftStream.listen((frame) {
+        setState(() => _latestFftFrame = frame);
+      });
+    }
+
     // Wire up auto-advance when a track finishes
     AudioPlayerService.setOnTrackComplete(_skipToNext);
     // Wire up notification panel next/previous controls
@@ -362,10 +589,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         if (enabled) {
           print('ALS enabled');
           _ambientLightService.stop();
+      _fftSub?.cancel();
           _startALS();
         } else {
           print('ALS disabled');
           _ambientLightService.stop();
+      _fftSub?.cancel();
           setState(() => _sunlightFactor = 0.0);
         }
       } catch (e) {
@@ -420,12 +649,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      final appName = await AppSettings.loadAppName();
      final playCounts = await AppSettings.loadPlayCounts();
      final showAlbumArt = await AppSettings.loadShowAlbumArt();
+     final vizEnabled = await AppSettings.loadVizEnabled();
+     final vizStyle = await AppSettings.loadVizStyle();
      if (mounted) {
        setState(() {
          _appName = appName;
          _playCounts.clear();
          _playCounts.addAll(playCounts);
          _showAlbumArt = showAlbumArt;
+        _vizEnabled = vizEnabled;
+        _vizStyle = vizStyle;
        });
      }
     // Load pinned grid after settings are loaded
@@ -463,10 +696,57 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     if (!_isDesktop) {
       try {
         _ambientLightService.stop();
+      _fftSub?.cancel();
       } catch (_) {}
     }
     super.dispose();
   }
+
+
+  /// Show viz style options menu (called from long-press/right-click on viz button).
+  void _showVizOptions() {
+    // Ensure viz is enabled when showing options — user clearly wants to use it.
+    if (!_vizEnabled) {
+      setState(() => _vizEnabled = true);
+      _fftSub?.cancel();
+      _fftSub = AudioPlayerService.fftStream.listen((frame) {
+        setState(() => _latestFftFrame = frame);
+      });
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text('visualizer', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _vizStyleOption('bars', Icons.bar_chart_rounded),
+            _vizStyleOption('wave', Icons.show_chart_rounded),
+            _vizStyleOption('dots', Icons.grid_view_rounded),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _vizStyleOption(String style, IconData icon) {
+    final isSelected = _vizStyle == style;
+    return ListTile(
+      leading: Icon(icon, color: isSelected ? Colors.white : Colors.white54, size: 20),
+      title: Text(style.toUpperCase(), style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontWeight: isSelected ? FontWeight.bold : null)),
+      trailing: isSelected ? const Icon(Icons.check_rounded, color: Colors.white) : null,
+      onTap: () {
+        setState(() => _vizStyle = style);
+        AppSettings.saveVizStyle(style).then((_) {
+          AudioPlayerService.vizStyle = style;
+        });
+        Navigator.of(context).pop();
+      },
+    );
+  }
+
 
   void _listenToPlayback() {
     // Use playingStateStream which works on ALL platforms (Android + desktop)
@@ -1223,6 +1503,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             song,
                             queue: gridSongs,
                             isSelected: _selectedGridTile == index,
+                            showViz: _vizEnabled,
                             onTap: () {
                               setState(() => _selectedGridTile = index);
                               playSong(song, queue: gridSongs);
@@ -1255,6 +1536,43 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // "Viz" button — toggle spectrum analyzer on selected tile.
+                        // Long-press/right-click opens style options menu.
+                        GestureDetector(
+                          onSecondaryTapDown: (details) => _showVizOptions(),
+                          onLongPress: _showVizOptions,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              if (_vizEnabled) {
+                                _fftSub?.cancel();
+                                setState(() => _latestFftFrame = null);
+                              } else {
+                                _fftSub = AudioPlayerService.fftStream.listen((frame) {
+                                  setState(() => _latestFftFrame = frame);
+                                });
+                              }
+                              setState(() => _vizEnabled = !_vizEnabled);
+                            },
+                            icon: Icon(
+                              Icons.equalizer,
+                              size: 16,
+                              color: _vizEnabled ? Colors.white : Colors.white54,
+                            ),
+                            label: Text(
+                              'viz',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _vizEnabled ? Colors.white : Colors.white54,
+                              ),
+                            ),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: const Size(0, 28),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
                         // "Tops" button — tap cycles most-played page; long-press/right-click resets to beginning
                                                                         GestureDetector(
                                                                           onSecondaryTap: () {
@@ -1702,6 +2020,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     List<Song>? queue,
     bool isSelected = false,
     required VoidCallback onTap,
+    bool showViz = false,
   }) {
     final context = _tileContext(song);
 
@@ -1732,7 +2051,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 borderRadius: BorderRadius.circular(6),
                 child: AspectRatio(
                   aspectRatio: 1.0,
-                  child: _showAlbumArt
+                  child: showViz && isSelected
+                      ? _VizTile(songTitle: song.title)
+                      : _showAlbumArt
                       ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes, sunlightFactor: _sunlightFactor)
                       : TitlePattern(title: song.title, sunlightFactor: _sunlightFactor),
                 ),

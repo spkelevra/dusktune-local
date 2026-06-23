@@ -102,6 +102,25 @@ class AppSettings {
     await PersistentStorage.saveLightDetection(enabled);
   }
 
+
+  // -- Visualizer settings --
+
+  static Future<bool> loadVizEnabled() async {
+    return PersistentStorage.loadVizEnabled();
+  }
+
+  static Future<void> saveVizEnabled(bool enabled) async {
+    await PersistentStorage.saveVizEnabled(enabled);
+  }
+
+  /// Visualizer style: "bars" (default), "wave", or "dots".
+  static Future<String> loadVizStyle() async {
+    return PersistentStorage.loadVizStyle();
+  }
+
+  static Future<void> saveVizStyle(String style) async {
+    await PersistentStorage.saveVizStyle(style);
+  }
   // -- Artwork cache --
 
   /// Get cached artwork for a song, or null if not available.

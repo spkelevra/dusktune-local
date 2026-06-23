@@ -51,6 +51,8 @@ class PersistentStorage {
   static const String _kFavorites = 'favorites.json';
   static const String _kShowAlbumArt = 'show_album_art.json';
   static const String _kLightDetection = 'light_detection.json';
+  static const String _kVizEnabled = 'viz_enabled.json';
+  static const String _kVizStyle = 'viz_style.json';
 
   /// Subdirectory for cached album artwork thumbnails.
   static const String _artworkSubDir = 'artwork';
@@ -436,6 +438,47 @@ class PersistentStorage {
     await prefs.setStringList('music_folders_v1', folders);
   }
 
+
+  // -- Visualizer settings (bool + style string) --
+
+  static Future<bool> loadVizEnabled() async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('viz_enabled') ?? false;
+    }
+    final data = await _readJsonAsync(_kVizEnabled);
+    if (data is bool) return data;
+    return false;
+  }
+
+  static Future<void> saveVizEnabled(bool enabled) async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('viz_enabled', enabled);
+      return;
+    }
+    await _writeJson(_kVizEnabled, enabled);
+  }
+
+  /// Visualizer style: "bars" (default), "wave", or "dots".
+  static Future<String> loadVizStyle() async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('viz_style') ?? 'bars';
+    }
+    final data = await _readJsonAsync(_kVizStyle);
+    if (data is String && ['bars', 'wave', 'dots'].contains(data)) return data;
+    return 'bars';
+  }
+
+  static Future<void> saveVizStyle(String style) async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('viz_style', style);
+      return;
+    }
+    await _writeJson(_kVizStyle, style);
+  }
   // -- Clear all persistent data --
 
   /// Delete ALL persistent data files. Use this for the "Clear All Data" feature.

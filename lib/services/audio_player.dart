@@ -120,6 +120,9 @@ class MpvAudioHandler {
   Stream<Duration?> get durationStream =>
       _player.stream.duration.map((d) => d.isNegative ? null : d);
 
+  /// FFT spectrum stream from mpv — emits FftFrame at ~30 Hz.
+  Stream<FftFrame> get fftStream => _player.stream.fft;
+
   /// Set playback volume (0.0–1.0).
   Future<void> setVolume(double v) async {
     _currentVolume = v.clamp(0.0, 1.0);
@@ -444,6 +447,14 @@ class AudioPlayerService {
     }
     return const Stream.empty();
   }
+
+  /// FFT spectrum stream from mpv — emits FftFrame at ~30 Hz.
+  static Stream<FftFrame> get fftStream => _handler?.fftStream ?? const Stream.empty();
+
+  /// Visualizer style: "bars" (default), "wave", or "dots".
+  static String _vizStyle = 'bars';
+  static String get vizStyle => _vizStyle;
+  static set vizStyle(String s) => _vizStyle = s;
 
   /// Helper to derive playing state stream from mpv player.
   static Stream<bool> _playerPlayingStream(MpvAudioHandler handler) {
