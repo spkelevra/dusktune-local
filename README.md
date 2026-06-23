@@ -22,6 +22,8 @@ A minimalist dark-mode local music player for Android, Windows, and macOS.
 
 **Grid area:** Swipe right → shuffle. Swipe left → restore pinned grid (same as tapping "the grid").
 
+**Filter control:** A rotary knob next to the filter label lets you apply a low-pass or high-pass filter. Drag left to engage the low-pass filter (LPF) — attenuates highs. Drag right for the high-pass filter (HPF) — cuts lows. The neutral position at top removes filtering entirely. Tap/double-tap/right-click the knob's dot to reset to neutral.
+
 **Library, Favorites, and Mixes tabs:** Swipe left → go back to home page. Swipe right → navigate to the next tab sequentially (Library → Mixes → Favorites). Swiping right from Favorites stays on that tab; Settings is not reachable via swipe.
 
 **Grid tiles:** Long-press / right-click a tile → enter pin mode for that song. Tap a tile in pin mode → place it in that position.
