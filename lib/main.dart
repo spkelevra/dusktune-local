@@ -2675,8 +2675,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   constraints: const BoxConstraints(),
                 ),
 
-                // Shuffle All toggle button — extra space from skip next
-                const SizedBox(width: 16),
+                // Shuffle All toggle button — extra space from skip next (desktop only)
+                if (_isDesktop) const SizedBox(width: 16),
                 IconButton(
                   icon: Icon(
                     Icons.shuffle,
