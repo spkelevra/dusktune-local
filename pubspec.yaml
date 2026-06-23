@@ -15,7 +15,7 @@ dependencies:
   shared_preferences: ^2.3.2
   mpv_audio_kit:
     git: https://github.com/spkelevra/mpv_audio_kit.git
-  on_audio_query_pluse: ^3.0.7
+  on_audio_query: ^2.9.0
   id3: 1.0.2
   path: ^1.9.1
   path_provider: ^2.1.5
