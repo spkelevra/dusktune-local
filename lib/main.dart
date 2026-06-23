@@ -603,6 +603,61 @@ class _VizIntensitySliderState extends State<_VizIntensitySlider> {
 }
 
 
+
+/// Smoothing slider widget with real-time percentage label.
+class _VizSmoothingSlider extends StatefulWidget {
+  final double initialValue;
+  final ValueChanged<double> onSaved;
+
+  const _VizSmoothingSlider({required this.initialValue, required this.onSaved});
+
+  @override
+  State<_VizSmoothingSlider> createState() => _VizSmoothingSliderState();
+}
+
+class _VizSmoothingSliderState extends State<_VizSmoothingSlider> {
+  double _value = 0.5;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.initialValue;
+  }
+
+  void _onChanged(double v) {
+    setState(() => _value = v);
+    AppSettings.saveVizSmoothing(v).then((_) {
+      AudioPlayerService.smoothingFactor = v;
+    });
+    widget.onSaved(v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.blur_on_rounded, size: 18, color: Colors.white70),
+            const SizedBox(width: 6),
+            Text("Smoothing: ${(_value * 100).round()}%", style: TextStyle(color: Colors.white70, fontSize: 12)),
+          ],
+        ),
+        Slider(
+          value: _value,
+          min: 0.0,
+          max: 1.0,
+          divisions: 20,
+          onChanged: _onChanged,
+        ),
+      ],
+    );
+  }
+}
+
 /// Main app shell with top nav bar and bottom player.
 class DuskTuneShell extends StatefulWidget {
   final List<Song> allSongs;
@@ -937,25 +992,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               setState(() => _vizIntensity = v);
             }),
             const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.blur_on_rounded, size: 18, color: Colors.white70),
-                const SizedBox(width: 6),
-                Text("Smoothing: ${(_vizSmoothing * 100).round()}%", style: TextStyle(color: Colors.white70, fontSize: 12)),
-              ],
-            ),
-            Slider(
-              value: _vizSmoothing,
-              min: 0.0,
-              max: 1.0,
-              divisions: 20,
-              onChanged: (v) {
-                setState(() => _vizSmoothing = v);
-                AppSettings.saveVizSmoothing(v).then((_) {
-                  AudioPlayerService.smoothingFactor = v;
-                });
-              },
-            ),
+            _VizSmoothingSlider(initialValue: _vizSmoothing, onSaved: (v) {
+              setState(() => _vizSmoothing = v);
+            }),
           ],
         ),
       ),
