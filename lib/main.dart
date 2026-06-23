@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'app_theme.dart';
 import 'models/song.dart';
 import 'services/artwork_extractor.dart';
@@ -1134,11 +1135,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           // Tab buttons (icons only)
              _tabIcon(Icons.queue_music, 1),
              const SizedBox(width: 4),
-             _tabIcon(Icons.audiotrack, 2),
+             _tabIcon(PhosphorIcons.vinylRecordFill, 2),
              const SizedBox(width: 4),
-             _tabIcon(Icons.favorite, 3),
-             // Settings tab
-                  const SizedBox(width: 4),
+             _tabIcon(PhosphorIcons.fireFill, 3),
+              // Settings tab
+                   const SizedBox(width: 4),
                   _tabIcon(Icons.tune, 4),
              ],
              ),
@@ -1302,7 +1303,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                promptSaveMix(context);
                              },
                             icon: const Icon(
-                              Icons.audiotrack,
+                              PhosphorIcons.vinylRecordFill,
                               size: 16,
                               color: Colors.white54,
                             ),
@@ -1634,12 +1635,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                 _pinSourceSong = null;
                               },
                               icon: const Icon(
-                                Icons.favorite_border,
-                                size: 14,
-                                color: Colors.white54,
-                              ),
-                              label: const Text(
-                                'Pin to Favorites',
+                                 PhosphorIcons.fire,
+                                   size: 14,
+                                   color: Colors.white54,
+                                 ),
+                                 label: const Text(
+                                   'Pin to Favorites',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.white54,
@@ -1660,12 +1661,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                 _pinSourceSong = null;
                               },
                               icon: const Icon(
-                                Icons.favorite_border,
-                                size: 14,
-                                color: Colors.white54,
-                              ),
-                              label: const Text(
-                                'Remove from Favorites',
+                                 PhosphorIcons.fire,
+                                   size: 14,
+                                   color: Colors.white54,
+                                 ),
+                                 label: const Text(
+                                   'Remove from Favorites',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.white54,
@@ -2226,13 +2227,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                            ),
                            alignment: Alignment.center,
                            child: const Icon(
-                             Icons.favorite,
-                             size: 18,
-                             color: Colors.white24,
-                           ),
-                         ),
-                         title: Text(
-                           song.title,
+                                PhosphorIcons.fireFill,
+                                size: 18,
+                                color: Colors.white24,
+                              ),
+                            ),
+                            title: Text(
+                              song.title,
                            style: const TextStyle(
                              color: Colors.white,
                              fontSize: 13,
