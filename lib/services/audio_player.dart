@@ -15,6 +15,12 @@ class MpvAudioHandler {
   /// Callback invoked when a track finishes playing.
   void Function()? onTrackComplete;
 
+  /// Callback invoked when OS media session sends next-track command.
+  void Function()? onNextTrack;
+
+  /// Callback invoked when OS media session sends previous-track command.
+  void Function()? onPreviousTrack;
+
   /// Current volume level (0.0–1.0).
   double _currentVolume = 1.0;
 
@@ -64,6 +70,51 @@ class MpvAudioHandler {
     _player.stream.error.listen((error) {
       debugPrint('MpvAudioHandler error: $error');
     });
+
+    // Enable OS media session — shows playback controls on lockscreen,
+    // Windows Action Center, macOS Control Center, notification shade.
+    _enableMediaSession();
+
+    // Listen for next/previous commands from the OS media session.
+    _player.stream.mediaSessionCommands.listen((command) {
+      debugPrint('MpvAudioHandler: MediaSessionCommand ${command.runtimeType}');
+      if (command is MediaSessionCommandNext && onNextTrack != null) {
+        debugPrint('  -> firing onNextTrack');
+        onNextTrack!();
+      } else if (command is MediaSessionCommandPrevious && onPreviousTrack != null) {
+        debugPrint('  -> firing onPreviousTrack');
+        onPreviousTrack!();
+      }
+    });
+  }
+
+  /// Enable OS media session with default settings. Metadata fields are
+  /// derived from the playing file's ID3 tags via mpv unless overridden.
+  Future<void> _enableMediaSession() async {
+    try {
+      await _player.setMediaSession(const MediaSession());
+      debugPrint('MpvAudioHandler: OS media session enabled');
+    } catch (e) {
+      debugPrint('MpvAudioHandler: failed to enable media session: $e');
+    }
+  }
+
+  /// Update media session metadata with current track info.
+  Future<void> _updateMediaSessionMetadata(Song song) async {
+    try {
+      final ms = _player.state.mediaSession;
+      if (ms != null) {
+        await _player.setMediaSession(
+          ms.copyWith(
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('MpvAudioHandler: failed to update media metadata: $e');
+    }
   }
 
   /// Play a song using its file path. Sets _isTransitioning so that endFile
@@ -87,6 +138,9 @@ class MpvAudioHandler {
       // Give mpv a brief settle window after open so the old file's EOF
       // (if it arrives late) doesn't trigger auto-advance.
       await Future.delayed(const Duration(milliseconds: 200));
+
+      // Update media session metadata with current track info
+      await _updateMediaSessionMetadata(song);
       debugPrint('MpvAudioHandler.playSong: success for ${song.title}');
     } catch (e) {
       debugPrint('MpvAudioHandler.playSong FAILED for ${song.title}: $e');
@@ -207,7 +261,7 @@ class MpvAudioHandler {
   }
 
   /// Gradually ramp a high-pass filter from full (20 Hz) up to the target
-  /// cutoff over [duration], using af-command for glitch-free updates.
+  /// cutoff over [duration], using updateAudioEffects for glitch-free updates.
   Future<void> rampHighPassFilter(double targetCutoffHz, Duration duration) async {
     const steps = 30;
     final stepMs = (duration.inMilliseconds / steps).ceil();
@@ -357,13 +411,13 @@ class AudioPlayerService {
     _handler?.onTrackComplete = callback;
   }
 
-  /// Set callbacks for notification panel next/previous buttons.
-  /// (No-op with mpv — media session handled differently.)
+  /// Set callbacks for next/previous track commands from the OS media session.
   static void setNotificationCallbacks({
     void Function()? onNext,
     void Function()? onPrevious,
   }) {
-    // No-op — mpv handles OS integration internally via MediaSession
+    _handler?.onNextTrack = onNext;
+    _handler?.onPreviousTrack = onPrevious;
   }
 
   /// Play a song.
@@ -408,14 +462,14 @@ class AudioPlayerService {
     await _handler?.setVolume(v);
   }
 
-  /// Skip to next song in queue.
+  /// Skip to next song in queue (triggers OS media session next command).
   static Future<void> skipToNext() async {
-    // No-op — queue management is handled by the UI layer via onTrackComplete callback
+    _handler?.onNextTrack?.call();
   }
 
-  /// Skip to previous song in queue.
+  /// Skip to previous song in queue (triggers OS media session previous command).
   static Future<void> skipToPrevious() async {
-    // No-op — queue management is handled by the UI layer via onTrackComplete callback
+    _handler?.onPreviousTrack?.call();
   }
 
   /// Playing state stream that works on ALL platforms.
