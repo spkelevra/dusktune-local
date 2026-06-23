@@ -130,6 +130,15 @@ class AppSettings {
   static Future<void> saveVizIntensity(double intensity) async {
     await PersistentStorage.saveVizIntensity(intensity);
   }
+
+  /// Visualizer smoothing: 0.0 (raw), 1.0 (heavy), default 0.5.
+  static Future<double> loadVizSmoothing() async {
+    return PersistentStorage.loadVizSmoothing();
+  }
+
+  static Future<void> saveVizSmoothing(double smoothing) async {
+    await PersistentStorage.saveVizSmoothing(smoothing);
+  }
   // -- Artwork cache --
 
   /// Get cached artwork for a song, or null if not available.

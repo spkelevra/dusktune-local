@@ -54,6 +54,7 @@ class PersistentStorage {
   static const String _kVizEnabled = 'viz_enabled.json';
   static const String _kVizStyle = 'viz_style.json';
   static const String _kVizIntensity = 'viz_intensity.json';
+  static const String _kVizSmoothing = 'viz_smoothing.json';
 
   /// Subdirectory for cached album artwork thumbnails.
   static const String _artworkSubDir = 'artwork';
@@ -461,14 +462,14 @@ class PersistentStorage {
     await _writeJson(_kVizEnabled, enabled);
   }
 
-  /// Visualizer style: "bars" (default), "wave", or "dots".
+  /// Visualizer style: "bars" (default), "wave", "dots", "circles", or "peakhold".
   static Future<String> loadVizStyle() async {
     if (!Platform.isAndroid) {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getString('viz_style') ?? 'bars';
     }
     final data = await _readJsonAsync(_kVizStyle);
-    if (data is String && ['bars', 'wave', 'dots'].contains(data)) return data;
+    if (data is String && ['bars', 'wave', 'dots', 'circles', 'peakhold'].contains(data)) return data;
     return 'bars';
   }
 
@@ -500,6 +501,26 @@ class PersistentStorage {
     }
     await _writeJson(_kVizIntensity, intensity.clamp(0.0, 2.0));
   }
+  /// Visualizer smoothing/decay: 0.0 (raw), 1.0 (heavy), default 0.5.
+  static Future<double> loadVizSmoothing() async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getDouble('viz_smoothing') ?? 0.5;
+    }
+    final data = await _readJsonAsync(_kVizSmoothing);
+    if (data is double || data is int) return (data as num).toDouble().clamp(0.0, 1.0);
+    return 0.5;
+  }
+
+  static Future<void> saveVizSmoothing(double smoothing) async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('viz_smoothing', smoothing.clamp(0.0, 1.0));
+      return;
+    }
+    await _writeJson(_kVizSmoothing, smoothing.clamp(0.0, 1.0));
+  }
+
   // -- Clear all persistent data --
 
   /// Delete ALL persistent data files. Use this for the "Clear All Data" feature.

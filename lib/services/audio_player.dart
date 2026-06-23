@@ -456,6 +456,11 @@ class AudioPlayerService {
   static double _vizIntensity = 1.0;
   static double get vizIntensity => _vizIntensity;
   static set vizIntensity(double v) => _vizIntensity = v.clamp(0.0, 2.0);
+
+  /// Smoothing/decay factor: 0.0 (no smoothing, raw FFT), 1.0 (heavy smoothing).
+  static double _smoothingFactor = 0.5;
+  static double get smoothingFactor => _smoothingFactor;
+  static set smoothingFactor(double v) => _smoothingFactor = v.clamp(0.0, 1.0);
   static String get vizStyle => _vizStyle;
   static set vizStyle(String s) => _vizStyle = s;
 
