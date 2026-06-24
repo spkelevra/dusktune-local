@@ -24,6 +24,14 @@ class MpvAudioHandler {
   /// Current volume level (0.0–1.0).
   double _currentVolume = 1.0;
 
+  /// FFT configuration optimized for Android (~7fps native limit)
+  static final _fftConfig = SpectrumSettings(
+    fftSize: 1024,
+    bandCount: 32,
+    emitInterval: Duration(milliseconds: 33), // Target ~30fps (gets ~7fps on Android)
+    overlapFactor: 4,
+  );
+
   /// Current filter control value (-1..+1), persisted so we can reapply it
   /// after a track change (mpv clears DSP chain on file load).
   double _filterControlValue = 0.0;

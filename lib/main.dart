@@ -212,6 +212,8 @@ class _BarsVizPainter extends CustomPainter {
   final double intensity;
   final List<double>? bandsOverride;
 
+  static final Paint _paint = Paint();
+
   const _BarsVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0, this.bandsOverride});
 
   @override
@@ -255,6 +257,8 @@ class _WaveVizPainter extends CustomPainter {
   final bool isPlaying;
   final double intensity;
   final List<double>? bandsOverride;
+
+  static final Paint _paint = Paint();
 
   const _WaveVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0, this.bandsOverride});
 
@@ -319,6 +323,8 @@ class _DotsVizPainter extends CustomPainter {
   final bool isPlaying;
   final double intensity;
   final List<double>? bandsOverride;
+
+  static final Paint _paint = Paint();
 
   const _DotsVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0, this.bandsOverride});
 
@@ -411,6 +417,9 @@ class _PeakHoldVizPainter extends CustomPainter {
   final FftFrame? frame;
   final double intensity;
   final List<double>? bandsOverride;
+
+  static final Paint _paint = Paint();
+  static final Paint _mainPaint = Paint();
 
   const _PeakHoldVizPainter({this.frame, this.intensity = 1.0, this.bandsOverride});
 
