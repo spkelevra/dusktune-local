@@ -23,6 +23,7 @@ class YtDlpService {
 
   /// Resolve a stream URL from a webpage URL using the appropriate package.
   Future<String?> resolveStreamUrl(String uri) async {
+    debugPrint('YtDlpService.resolveStreamUrl: $uri');
     try {
       if (uri.contains('youtube.com') || uri.contains('youtu.be')) {
         return _resolveYouTube(uri);
@@ -31,8 +32,8 @@ class YtDlpService {
       }
       debugPrint('YtDlpService.resolveStreamUrl: unsupported URL $uri');
       return null;
-    } catch (e) {
-      debugPrint('YtDlpService.resolveStreamUrl error: $e');
+    } catch (e, st) {
+      debugPrint('YtDlpService.resolveStreamUrl error: $e\n$st');
       return null;
     }
   }
@@ -51,11 +52,13 @@ class YtDlpService {
 
       if (videoId == null) return null;
 
+      debugPrint('YtDlpService._resolveYouTube: fetching manifest for $videoId');
       final manifest = await yt.videos.streamsClient.getManifest(videoId);
       final audioStream = manifest.audioOnly.withHighestBitrate();
+      debugPrint('YtDlpService._resolveYouTube: got stream ${audioStream.url}');
       return audioStream.url.toString();
-    } catch (e) {
-      debugPrint('YtDlpService._resolveYouTube error: $e');
+    } catch (e, st) {
+      debugPrint('YtDlpService._resolveYouTube error: $e\n$st');
       return null;
     } finally {
       yt.close();
@@ -66,28 +69,36 @@ class YtDlpService {
   Future<String?> _resolveSoundCloud(String uri) async {
     final client = SoundcloudClient();
     try {
+      debugPrint('YtDlpService._resolveSoundCloud: fetching track from $uri');
       final track = await client.tracks.getByUrl(uri);
+      debugPrint('YtDlpService._resolveSoundCloud: got track ${track.title} id=${track.id}');
       final streams = await client.tracks.getStreams(track.id);
       for (final stream in streams) {
         if (!stream.isSnipped) {
+          debugPrint('YtDlpService._resolveSoundCloud: got non-snipped stream');
           return stream.url;
         }
       }
-      if (streams.isNotEmpty) return streams.first.url;
+      if (streams.isNotEmpty) {
+        debugPrint('YtDlpService._resolveSoundCloud: using snipped stream as fallback');
+        return streams.first.url;
+      }
+      debugPrint('YtDlpService._resolveSoundCloud: no streams found');
       return null;
-    } catch (e) {
-      debugPrint('YtDlpService._resolveSoundCloud error: $e');
+    } catch (e, st) {
+      debugPrint('YtDlpService._resolveSoundCloud error: $e\n$st');
       return null;
-    } finally {
     }
   }
 
   /// Search YouTube for tracks matching a query.
   Future<List<Song>> searchYouTube(String query, {int limit = 9}) async {
+    debugPrint('YtDlpService.searchYouTube: "$query" (limit=$limit)');
     final yt = YoutubeExplode();
     final songs = <Song>[];
     try {
       final results = await yt.search.search(query);
+      debugPrint('YtDlpService.searchYouTube: got ${results.length} raw results');
       var count = 0;
       for (final video in results) {
         if (count >= limit) break;
@@ -102,8 +113,9 @@ class YtDlpService {
         ));
         count++;
       }
-    } catch (e) {
-      debugPrint('YtDlpService.searchYouTube error: $e');
+      debugPrint('YtDlpService.searchYouTube: returning ${songs.length} songs');
+    } catch (e, st) {
+      debugPrint('YtDlpService.searchYouTube error: $e\n$st');
     } finally {
       yt.close();
     }
@@ -112,29 +124,31 @@ class YtDlpService {
 
   /// Search SoundCloud for tracks matching a query.
   Future<List<Song>> searchSoundCloud(String query, {int limit = 9}) async {
+    debugPrint('YtDlpService.searchSoundCloud: "$query" (limit=$limit)');
     final client = SoundcloudClient();
     final songs = <Song>[];
     try {
       var count = 0;
       await for (final batch in client.search.getTracks(query, limit: limit)) {
+        debugPrint('YtDlpService.searchSoundCloud: got batch of ${batch.length}');
         for (final result in batch) {
           if (count >= limit) break;
           final uri = result.permalinkUrl.toString();
-            songs.add(Song(
-              id: _hash(uri),
-              title: result.title,
-              artist: result.user.username.isNotEmpty ? result.user.username : null,
-              duration: result.duration > 0 ? (result.duration * 1000).toInt() : 0,
-              uri: uri,
-              streamSource: StreamSource.soundcloud,
-            ));
-            count++;
+          songs.add(Song(
+            id: _hash(uri),
+            title: result.title,
+            artist: result.user.username.isNotEmpty ? result.user.username : null,
+            duration: result.duration > 0 ? (result.duration * 1000).toInt() : 0,
+            uri: uri,
+            streamSource: StreamSource.soundcloud,
+          ));
+          count++;
         }
         if (count >= limit) break;
       }
-    } catch (e) {
-      debugPrint('YtDlpService.searchSoundCloud error: $e');
-    } finally {
+      debugPrint('YtDlpService.searchSoundCloud: returning ${songs.length} songs');
+    } catch (e, st) {
+      debugPrint('YtDlpService.searchSoundCloud error: $e\n$st');
     }
     return songs;
   }
@@ -175,16 +189,19 @@ class YtDlpService {
         }
       }
 
-      debugPrint('SoundCloud shuffle query: $query');
+      debugPrint('SoundCloud shuffle query: "$query"');
 
       // Fetch 3x results, then shuffle client-side for true randomness
       final allTracks = await searchSoundCloud(query, limit: count * 3);
-      if (allTracks.isEmpty) return [];
+      if (allTracks.isEmpty) {
+        debugPrint('SoundCloud shuffle: no tracks found for "$query"');
+        return [];
+      }
 
       final shuffled = List<Song>.from(allTracks)..shuffle(rng);
       return shuffled.take(count).toList();
-    } catch (e) {
-      debugPrint('SoundCloud trending error: $e');
+    } catch (e, st) {
+      debugPrint('SoundCloud trending error: $e\n$st');
       return [];
     }
   }
@@ -211,14 +228,19 @@ class YtDlpService {
         query = '$pickedGenre $suffix';
       }
 
+      debugPrint('YouTube shuffle query: "$query"');
+
       // Fetch more results than needed, then shuffle client-side for true randomness
       final allTracks = await searchYouTube(query, limit: count * 3);
-      if (allTracks.isEmpty) return [];
+      if (allTracks.isEmpty) {
+        debugPrint('YouTube shuffle: no tracks found for "$query"');
+        return [];
+      }
 
       final shuffled = List<Song>.from(allTracks)..shuffle(rng);
       return shuffled.take(count).toList();
-    } catch (e) {
-      debugPrint('YouTube trending error: $e');
+    } catch (e, st) {
+      debugPrint('YouTube trending error: $e\n$st');
       return [];
     }
   }
