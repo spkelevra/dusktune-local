@@ -10,9 +10,7 @@ import '../models/song.dart';
 
 /// Singleton audio handler — uses mpv directly (no background isolate).
 class MpvAudioHandler {
-  final Player _player = Player(
-    configuration: const PlayerConfiguration(enableYtDlp: true),
-  );
+  final Player _player = Player();
 
   /// Callback invoked when a track finishes playing.
   void Function()? onTrackComplete;

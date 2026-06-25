@@ -1,263 +1,149 @@
-/// yt-dlp integration for streaming URL resolution.
+/// Native Dart streaming service using youtube_explode_dart + soundcloud_explode_dart.
 ///
-/// Supports YouTube and SoundCloud by invoking yt-dlp CLI to extract
-/// playable stream URLs from video/track pages.
+/// Replaces the yt-dlp CLI wrapper — no external binary required on any platform.
 library;
 
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
+import 'package:soundcloud_explode_dart/soundcloud_explode_dart.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../models/song.dart';
 
-/// Service for resolving streaming URLs via yt-dlp.
-///
-/// This uses the system's yt-dlp installation to extract audio stream URLs
-/// from YouTube and SoundCloud. Requires yt-dlp to be installed on the system.
+/// Service for resolving streaming URLs and searching via native Dart packages.
 class YtDlpService {
   static final YtDlpService _instance = YtDlpService._internal();
   factory YtDlpService() => _instance;
   YtDlpService._internal();
 
-  /// Path to yt-dlp executable (detected automatically or configurable).
-  String? _ytDlpPath;
+  /// Always available — no external binary needed.
+  bool get isAvailable => true;
 
-  /// Initialize and verify yt-dlp is available.
-  Future<bool> init() async {
+  /// No-op init (no binary to detect).
+  Future<bool> init() async => true;
+
+  /// Resolve a stream URL from a webpage URL using the appropriate package.
+  Future<String?> resolveStreamUrl(String uri) async {
     try {
-      // Try common paths for yt-dlp
-      final candidates = [
-        'yt-dlp',                    // In PATH
-        'yt_dlp',                    // Alternative name on some systems
-        '/usr/local/bin/yt-dlp',     // macOS/Linux default
-        '/usr/bin/yt-dlp',           // Linux package install
-        r'C:\ProgramData\chocolatey\bin\yt-dlp.exe', // Windows choco
-        r'C:\yt-dlp.exe',            // Windows manual install
-      ];
-
-      for (final path in candidates) {
-        try {
-          final result = await Process.run(path, ['--version']);
-          if (result.exitCode == 0 && result.stdout.toString().isNotEmpty) {
-            _ytDlpPath = path;
-            return true;
-          }
-        } catch (_) {
-          continue; // Try next candidate
-        }
+      if (uri.contains('youtube.com') || uri.contains('youtu.be')) {
+        return _resolveYouTube(uri);
+      } else if (uri.contains('soundcloud.com')) {
+        return _resolveSoundCloud(uri);
       }
-
-      return false;
-    } catch (e) {
-      debugPrint('YtDlpService init error: $e');
-      return false;
-    }
-  }
-
-  /// Check if yt-dlp is available.
-  bool get isAvailable => _ytDlpPath != null;
-
-  /// Extract audio stream URL from a YouTube or SoundCloud page URL.
-  ///
-  /// Returns the direct HTTPS stream URL that can be played with mpv_audio_kit,
-  /// or null if extraction fails.
-  Future<String?> resolveStreamUrl(String url) async {
-    if (!isAvailable) return null;
-
-    try {
-      // Extract best audio-only format using yt-dlp
-      final result = await Process.run(
-        _ytDlpPath!,
-        [
-          '--no-playlist',           // Single video only
-          '-f', 'ba',                // Best audio format
-          '--print', 'url',          // Print just the URL
-          '--no-warnings',           // Suppress warnings in output
-          '--no-check-certificate',  // Skip SSL verification (some CDNs)
-          url,
-        ],
-        runInShell: true,
-      );
-
-      if (result.exitCode == 0) {
-        final urlString = result.stdout.toString().trim();
-        if (urlString.isNotEmpty && urlString.startsWith('http')) {
-          return urlString;
-        }
-      } else {
-        debugPrint('yt-dlp error for $url: ${result.stderr}');
-      }
-
+      debugPrint('YtDlpService.resolveStreamUrl: unsupported URL $uri');
       return null;
     } catch (e) {
-      debugPrint('Exception resolving URL with yt-dlp: $e');
+      debugPrint('YtDlpService.resolveStreamUrl error: $e');
       return null;
     }
   }
 
-  /// Extract metadata from a YouTube or SoundCloud page.
-  ///
-  /// Returns JSON with title, artist, duration, etc. as provided by yt-dlp.
-  Future<Map<String, dynamic>?> extractMetadata(String url) async {
-    if (!isAvailable) return null;
-
+  /// Resolve a YouTube video to its best audio stream URL.
+  Future<String?> _resolveYouTube(String uri) async {
+    final yt = YoutubeExplode();
     try {
-      final result = await Process.run(
-        _ytDlpPath!,
-        [
-          '--no-playlist',
-          '--dump-json',
-          '--no-warnings',
-          '--no-check-certificate',
-          url,
-        ],
-        runInShell: true,
-      );
-
-      if (result.exitCode == 0) {
-        final jsonStr = result.stdout.toString().trim();
-        if (jsonStr.isNotEmpty) {
-          return jsonDecode(jsonStr) as Map<String, dynamic>;
-        }
+      String? videoId;
+      if (uri.contains('v=')) {
+        final match = RegExp(r'v=([a-zA-Z0-9_-]+)').firstMatch(uri);
+        videoId = match?.group(1);
+      } else if (uri.contains('youtu.be/')) {
+        videoId = uri.split('youtu.be/')[1].split('?')[0].split('&')[0];
       }
 
-      return null;
+      if (videoId == null) return null;
+
+      final manifest = await yt.videos.streamsClient.getManifest(videoId);
+      final audioStream = manifest.audioOnly.withHighestBitrate();
+      return audioStream.url.toString();
     } catch (e) {
-      debugPrint('Exception extracting metadata: $e');
+      debugPrint('YtDlpService._resolveYouTube error: $e');
       return null;
+    } finally {
+      yt.close();
     }
   }
 
-  /// Convert yt-dlp metadata JSON to a Song object.
-  Song _metadataToSong(Map<String, dynamic> meta, StreamSource source) {
-    final rawId = meta['id'];
-    final id = rawId is int ? rawId : int.tryParse(rawId.toString()) ?? DateTime.now().millisecondsSinceEpoch;
-    final title = (meta['title'] as String?) ?? 'Unknown Title';
-    final artist = meta['uploader'] ?? meta['artist'] ?? meta['channel'];
-    final durationMs = ((meta['duration'] as num?)?.toInt() ?? 0) * 1000;
-
-    return Song(
-      id: id,
-      title: title,
-      artist: artist as String?,
-      album: meta['album'] as String?,
-      duration: durationMs > 0 ? durationMs : 180000, // Default 3 min if unknown
-      uri: '', // Stream URL resolved separately via resolveStreamUrl()
-      streamSource: source,
-    );
+  /// Resolve a SoundCloud track to its direct stream URL.
+  Future<String?> _resolveSoundCloud(String uri) async {
+    final client = SoundcloudClient();
+    try {
+      final track = await client.tracks.getByUrl(uri);
+      final streams = await client.tracks.getStreams(track.id);
+      for (final stream in streams) {
+        if (!stream.isSnipped) {
+          return stream.url;
+        }
+      }
+      if (streams.isNotEmpty) return streams.first.url;
+      return null;
+    } catch (e) {
+      debugPrint('YtDlpService._resolveSoundCloud error: $e');
+      return null;
+    } finally {
+    }
   }
 
   /// Search YouTube for tracks matching a query.
-  ///
-  /// Returns list of Song objects with metadata but empty URIs.
-  /// Call [resolveStreamUrl] on each result's original URL to get playable streams.
   Future<List<Song>> searchYouTube(String query, {int limit = 9}) async {
-    if (!isAvailable) return [];
-
+    final yt = YoutubeExplode();
+    final songs = <Song>[];
     try {
-      // Use yt-dlp's built-in search (ytsearch:N: prefix)
-      final searchUrl = 'ytsearch$limit:$query';
-
-      final result = await Process.run(
-        _ytDlpPath!,
-        [
-          '--dump-json',
-          '--no-playlist',
-          '--flat-playlist',     // Search results without downloading
-          '--no-warnings',
-          searchUrl,
-        ],
-        runInShell: true,
-      );
-
-      if (result.exitCode == 0) {
-        final lines = result.stdout.toString().trim().split('\n');
-        final songs = <Song>[];
-
-        for (final line in lines) {
-          if (line.trim().isEmpty) continue;
-          try {
-            final meta = jsonDecode(line) as Map<String, dynamic>;
-            final originalUrl = 'https://youtube.com/watch?v=${meta['id']}';
-            final song = _metadataToSong(meta, StreamSource.youtube);
-
-            // Store the original URL in uri for later resolution
-            songs.add(song.copyWith(uri: originalUrl));
-          } catch (_) {
-            continue; // Skip malformed entries
-          }
-        }
-
-        return songs;
+      final results = await yt.search.search(query);
+      var count = 0;
+      for (final video in results) {
+        if (count >= limit) break;
+        final uri = 'https://www.youtube.com/watch?v=${video.id.value}';
+        songs.add(Song(
+          id: _hash(uri),
+          title: video.title,
+          artist: video.author.isNotEmpty ? video.author : null,
+          duration: video.duration != null ? (video.duration!.inMilliseconds) : 0,
+          uri: uri,
+          streamSource: StreamSource.youtube,
+        ));
+        count++;
       }
-
-      return [];
     } catch (e) {
-      debugPrint('YouTube search error: $e');
-      return [];
+      debugPrint('YtDlpService.searchYouTube error: $e');
+    } finally {
+      yt.close();
     }
+    return songs;
   }
 
   /// Search SoundCloud for tracks matching a query.
-  ///
-  /// Note: SoundCloud search via yt-dlp requires special handling due to API changes.
   Future<List<Song>> searchSoundCloud(String query, {int limit = 9}) async {
-    if (!isAvailable) return [];
-
+    final client = SoundcloudClient();
+    final songs = <Song>[];
     try {
-      // Use yt-dlp's SoundCloud search support
-      final searchUrl = 'scsearch$limit:$query';
-
-      final result = await Process.run(
-        _ytDlpPath!,
-        [
-          '--dump-json',
-          '--no-playlist',
-          '--flat-playlist',
-          '--no-warnings',
-          '--no-check-certificate',
-          searchUrl,
-        ],
-        runInShell: true,
-      );
-
-      if (result.exitCode == 0) {
-        final lines = result.stdout.toString().trim().split('\n');
-        final songs = <Song>[];
-
-        for (final line in lines) {
-          if (line.trim().isEmpty) continue;
-          try {
-            final meta = jsonDecode(line) as Map<String, dynamic>;
-            final song = _metadataToSong(meta, StreamSource.soundcloud);
-
-            // Store original URL for later resolution
-            final scUrl = meta['webpage_url'] ?? '';
-            songs.add(song.copyWith(uri: scUrl));
-          } catch (_) {
-            continue;
-          }
+      var count = 0;
+      await for (final batch in client.search.getTracks(query, limit: limit)) {
+        for (final result in batch) {
+          if (count >= limit) break;
+          final uri = result.permalinkUrl.toString();
+            songs.add(Song(
+              id: _hash(uri),
+              title: result.title,
+              artist: result.user.username.isNotEmpty ? result.user.username : null,
+              duration: result.duration > 0 ? (result.duration * 1000).toInt() : 0,
+              uri: uri,
+              streamSource: StreamSource.soundcloud,
+            ));
+            count++;
         }
-
-        return songs;
+        if (count >= limit) break;
       }
-
-      return [];
     } catch (e) {
-      debugPrint('SoundCloud search error: $e');
-      return [];
+      debugPrint('YtDlpService.searchSoundCloud error: $e');
+    } finally {
     }
+    return songs;
   }
 
   /// Get random/trending tracks from SoundCloud.
-  ///
-  /// Uses randomized search queries to get variety instead of the same results each time.
   Future<List<Song>> getRandomSoundcloudTracks(int count, {String? genre}) async {
     if (!isAvailable) return [];
 
     try {
-      // Use randomized queries for variety — yt-dlp search is deterministic so we randomize the query
-      // Mix of genre-based (60%) and artist-based (40%) searches for maximum variety
       final rng = math.Random();
       final genres = [
         'electronic', 'lofi hip hop', 'ambient', 'jazz', 'rock', 'indie',
@@ -275,7 +161,6 @@ class YtDlpService {
 
       final query;
       if (genre != null && genre.isNotEmpty) {
-        // User-specified genre — still add variety with random suffix
         final suffix = suffixes[rng.nextInt(suffixes.length)];
         query = '$genre $suffix';
       } else {
@@ -285,48 +170,19 @@ class YtDlpService {
           final suffix = suffixes[rng.nextInt(suffixes.length)];
           query = '$pickedGenre $suffix';
         } else {
-          // Artist search — pulls tracks by/featuring that artist from SoundCloud
           final pickedArtist = artists[rng.nextInt(artists.length)];
           query = '$pickedArtist';
         }
       }
 
       debugPrint('SoundCloud shuffle query: $query');
-      final result = await Process.run(
-        _ytDlpPath!,
-        [
-          '--dump-json',
-          '--no-playlist',
-          '--flat-playlist',
-          '--no-warnings',
-          'scsearch${count * 3}:$query',
-        ],
-        runInShell: true,
-      );
 
-      if (result.exitCode == 0) {
-        final lines = result.stdout.toString().trim().split('\n');
-        final songs = <Song>[];
+      // Fetch 3x results, then shuffle client-side for true randomness
+      final allTracks = await searchSoundCloud(query, limit: count * 3);
+      if (allTracks.isEmpty) return [];
 
-        for (final line in lines.take(count)) {
-          if (line.trim().isEmpty) continue;
-          try {
-            final meta = jsonDecode(line) as Map<String, dynamic>;
-            final song = _metadataToSong(meta, StreamSource.soundcloud);
-            final scUrl = meta['webpage_url'] ?? '';
-            songs.add(song.copyWith(uri: scUrl));
-          } catch (_) {
-            continue;
-          }
-        }
-
-        // Shuffle client-side for true randomness
-        final rng2 = math.Random();
-        songs.shuffle(rng2);
-        return songs.take(count).toList();
-      }
-
-      return [];
+      final shuffled = List<Song>.from(allTracks)..shuffle(rng);
+      return shuffled.take(count).toList();
     } catch (e) {
       debugPrint('SoundCloud trending error: $e');
       return [];
@@ -338,7 +194,6 @@ class YtDlpService {
     if (!isAvailable) return [];
 
     try {
-      // Use randomized queries for variety — yt-dlp search is deterministic so we randomize the query
       final rng = math.Random();
       final genres = [
         'electronic', 'lofi hip hop', 'ambient', 'jazz', 'rock', 'indie',
@@ -350,7 +205,6 @@ class YtDlpService {
       if (genre != null && genre.isNotEmpty) {
         query = '$genre music';
       } else {
-        // Pick a random genre and add variety suffixes
         final pickedGenre = genres[rng.nextInt(genres.length)];
         final suffixes = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
         final suffix = suffixes[rng.nextInt(suffixes.length)];
@@ -360,8 +214,7 @@ class YtDlpService {
       // Fetch more results than needed, then shuffle client-side for true randomness
       final allTracks = await searchYouTube(query, limit: count * 3);
       if (allTracks.isEmpty) return [];
-      
-      // Shuffle and take the requested count
+
       final shuffled = List<Song>.from(allTracks)..shuffle(rng);
       return shuffled.take(count).toList();
     } catch (e) {
@@ -369,4 +222,6 @@ class YtDlpService {
       return [];
     }
   }
+
+  int _hash(String s) => s.hashCode.abs() + DateTime.now().millisecondsSinceEpoch;
 }
