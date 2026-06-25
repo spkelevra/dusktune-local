@@ -138,6 +138,20 @@ class Song {
   bool operator ==(Object other) =>
       identical(this, other) || other is Song && id == other.id;
 
+  /// Returns a thumbnail URL for streaming sources computed from the URI.
+  /// YouTube: deterministic CDN URL from videoId — no network call needed to discover it.
+  /// SoundCloud: null (would need API call, not worth caching).
+  String? get effectiveThumbnailUrl {
+    if (thumbnailUrl != null) return thumbnailUrl;
+    // Compute YouTube thumbnail from URI — no caching needed
+    if (streamSource == StreamSource.youtube && uri.contains('youtube.com') || uri.contains('youtu.be')) {
+      final match = RegExp(r'v=([a-zA-Z0-9_-]+)').firstMatch(uri);
+      final videoId = match?.group(1) ?? uri.split('youtu.be/')[1].split('?')[0];
+      if (videoId.isNotEmpty) return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
+    }
+    return null;
+  }
+
   @override
   int get hashCode => id.hashCode;
 
