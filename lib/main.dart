@@ -1080,11 +1080,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      // Resolve stream URL for streaming sources before playback
      Song songToPlay = song;
      // Resolve stream URL for streaming songs regardless of current source mode.
-     // YouTube: skip pre-resolution — youtube_explode_dart returns throttled/cipher-signed
-     // URLs that mpv can't play directly. Pass raw YouTube URL to mpv instead and let it
-     // handle resolution internally (mpv has built-in yt-dlp support).
-     // SoundCloud: still resolve via soundcloud_explode_dart (returns direct CDN URLs).
-     if (song.streamSource != StreamSource.local && song.streamSource != StreamSource.youtube) {
+     // YouTube: pre-resolve via youtube_explode_dart using muxed streams (less throttled than adaptive).
+     // SoundCloud: resolve via soundcloud_explode_dart (returns direct CDN URLs).
+     if (song.streamSource != StreamSource.local) {
        try {
          final resolvedUri = await _resolveStreamUrl(song);
          if (resolvedUri != null) {

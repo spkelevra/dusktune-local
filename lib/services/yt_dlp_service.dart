@@ -38,7 +38,8 @@ class YtDlpService {
     }
   }
 
-  /// Resolve a YouTube video to its best audio stream URL.
+  /// Resolve a YouTube video to its best playable stream URL.
+  /// Tries muxed streams first (less throttled than adaptive audio-only), then falls back.
   Future<String?> _resolveYouTube(String uri) async {
     final yt = YoutubeExplode();
     try {
@@ -54,9 +55,30 @@ class YtDlpService {
 
       debugPrint('YtDlpService._resolveYouTube: fetching manifest for $videoId');
       final manifest = await yt.videos.streamsClient.getManifest(videoId);
-      final audioStream = manifest.audioOnly.withHighestBitrate();
-      debugPrint('YtDlpService._resolveYouTube: got stream ${audioStream.url}');
-      return audioStream.url.toString();
+
+      // Try muxed streams first — they're less aggressively throttled than adaptive audio-only.
+      if (manifest.muxed.isNotEmpty) {
+        final muxed = manifest.muxed.withHighestBitrate();
+        debugPrint('YtDlpService._resolveYouTube: using muxed stream ${muxed.url}');
+        return muxed.url.toString();
+      }
+
+      // Fallback to audio-only adaptive streams.
+      if (manifest.audioOnly.isNotEmpty) {
+        final audioStream = manifest.audioOnly.withHighestBitrate();
+        debugPrint('YtDlpService._resolveYouTube: using audio-only stream ${audioStream.url}');
+        return audioStream.url.toString();
+      }
+
+      // Last resort: any available stream.
+      if (manifest.streams.isNotEmpty) {
+        final fallback = manifest.streams.first;
+        debugPrint('YtDlpService._resolveYouTube: using fallback stream ${fallback.url}');
+        return fallback.url.toString();
+      }
+
+      debugPrint('YtDlpService._resolveYouTube: no streams found for $videoId');
+      return null;
     } catch (e, st) {
       debugPrint('YtDlpService._resolveYouTube error: $e\n$st');
       return null;
