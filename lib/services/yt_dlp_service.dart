@@ -125,12 +125,14 @@ class YtDlpService {
       for (final video in results) {
         if (count >= limit) break;
         final uri = 'https://www.youtube.com/watch?v=${video.id.value}';
+        final thumbnailUrl = 'https://img.youtube.com/vi/${video.id.value}/hqdefault.jpg';
         songs.add(Song(
           id: _hash(uri),
           title: video.title,
           artist: video.author.isNotEmpty ? video.author : null,
           duration: video.duration != null ? (video.duration!.inMilliseconds) : 0,
           uri: uri,
+          thumbnailUrl: thumbnailUrl,
           streamSource: StreamSource.youtube,
         ));
         count++;
@@ -162,6 +164,7 @@ class YtDlpService {
             artist: result.user.username.isNotEmpty ? result.user.username : null,
             duration: result.duration > 0 ? (result.duration * 1000).toInt() : 0,
             uri: uri,
+            thumbnailUrl: result.artworkUrl?.toString(),
             streamSource: StreamSource.soundcloud,
           ));
           count++;

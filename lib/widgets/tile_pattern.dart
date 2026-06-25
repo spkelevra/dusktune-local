@@ -1,6 +1,8 @@
 /// Generates unique monochrome patterns from song titles for the Top 9 grid.
 library;
 
+import 'dart:io';
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -265,61 +267,99 @@ class TitlePattern extends StatelessWidget {
 class AlbumArtTile extends StatelessWidget {
   final String title;
   final Uint8List? artworkBytes;
+  final String? thumbnailUrl;
   final double sunlightFactor;
 
   const AlbumArtTile({
     super.key,
     required this.title,
     this.artworkBytes,
+    this.thumbnailUrl,
     this.sunlightFactor = 0.0,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Priority: local bytes > remote URL > pattern fallback
     if (artworkBytes != null && artworkBytes!.isNotEmpty) {
       return Image.memory(
         artworkBytes!,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => TitlePattern(title: title, sunlightFactor: sunlightFactor),
+        errorBuilder: (_, __, ___) => _buildFallback(),
       );
     }
-    return TitlePattern(title: title, sunlightFactor: sunlightFactor);
+    if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) {
+      return Image.network(
+        thumbnailUrl!,
+        fit: BoxFit.cover,
+        loadingBuilder: (ctx, child, progress) {
+          if (progress == null) return child;
+          return TitlePattern(title: title, sunlightFactor: sunlightFactor);
+        },
+        errorBuilder: (_, __, ___) => _buildFallback(),
+      );
+    }
+    return _buildFallback();
   }
+
+  Widget _buildFallback() => TitlePattern(title: title, sunlightFactor: sunlightFactor);
 }
 
 /// Small album art thumbnail for list items (leading icon).
 class AlbumArtThumbnail extends StatelessWidget {
   final String title;
   final Uint8List? artworkBytes;
+  final String? thumbnailUrl;
   final double size;
 
   const AlbumArtThumbnail({
     super.key,
     required this.title,
     this.artworkBytes,
+    this.thumbnailUrl,
     this.size = 40,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Priority: local bytes > remote URL > fallback icon
     if (artworkBytes != null && artworkBytes!.isNotEmpty) {
-      return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: Image.memory(
-            artworkBytes!,
+      return _buildImage(Image.memory(
+        artworkBytes!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _fallbackIcon(),
+      ));
+    }
+    if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) {
+      return Stack(
+        children: [
+          _buildImage(Image.network(
+            thumbnailUrl!,
             fit: BoxFit.cover,
+            loadingBuilder: (ctx, child, progress) {
+              if (progress == null) return child;
+              return _fallbackIcon();
+            },
             errorBuilder: (_, __, ___) => _fallbackIcon(),
-          ),
-        ),
+          )),
+        ],
       );
     }
     return _fallbackIcon();
+  }
+
+  Widget _buildImage(Widget image) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: image,
+      ),
+    );
   }
 
   Widget _fallbackIcon() {

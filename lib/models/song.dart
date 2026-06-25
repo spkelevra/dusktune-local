@@ -19,6 +19,7 @@ class Song {
   final int duration;       // Duration in milliseconds
   final String uri;         // Content URI, file path, or streaming URL
   final Uint8List? artworkBytes; // Cached album art thumbnail (JPEG)
+  final String? thumbnailUrl;     // Remote thumbnail URL for streaming sources
   final StreamSource streamSource; // Source type (local vs streaming)
 
   const Song({
@@ -29,6 +30,7 @@ class Song {
     required this.duration,
     required this.uri,
     this.artworkBytes,
+    this.thumbnailUrl,
     this.streamSource = StreamSource.local,
   });
 
@@ -70,6 +72,7 @@ class Song {
      int duration = 0,
      required String uri,
      Uint8List? artworkBytes,
+     String? thumbnailUrl,
    }) {
      return Song(
        id: id,
@@ -79,6 +82,7 @@ class Song {
        duration: duration,
        uri: uri,
        artworkBytes: artworkBytes,
+       thumbnailUrl: thumbnailUrl,
        streamSource: StreamSource.local,
      );
    }
@@ -92,6 +96,7 @@ class Song {
      int? duration,
      String? uri,
      Uint8List? artworkBytes,
+     String? thumbnailUrl,
      StreamSource? streamSource,
    }) {
      return Song(
@@ -102,6 +107,7 @@ class Song {
        duration: duration ?? this.duration,
        uri: uri ?? this.uri,
        artworkBytes: artworkBytes ?? this.artworkBytes,
+       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
        streamSource: streamSource ?? this.streamSource,
      );
    }

@@ -2457,7 +2457,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   child: showViz && isSelected
                       ? _VizTile(songTitle: song.title)
                       : _showAlbumArt
-                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes, sunlightFactor: _sunlightFactor)
+                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes, thumbnailUrl: song.thumbnailUrl, sunlightFactor: _sunlightFactor)
                       : TitlePattern(title: song.title, sunlightFactor: _sunlightFactor),
                 ),
               ),
@@ -2570,7 +2570,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
          },
          child: ListTile(
            leading: _showAlbumArt
-               ? AlbumArtThumbnail(title: song.title, artworkBytes: song.artworkBytes)
+               ? AlbumArtThumbnail(title: song.title, artworkBytes: song.artworkBytes, thumbnailUrl: song.thumbnailUrl)
                : Container(
                    width: 40,
                    height: 40,
