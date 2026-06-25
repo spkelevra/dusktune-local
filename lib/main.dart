@@ -894,19 +894,43 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   /// Load favorites from persistent storage (async, non-blocking).
   Future<void> _loadFavoritesAsync() async {
-    final favIds = await AppSettings.loadFavorites();
+    final favDataList = await AppSettings.loadFavorites();
     if (!mounted) return;
     setState(() {
       _favorites.clear();
-      for (final idStr in favIds) {
-        final id = int.tryParse(idStr);
-        if (id != null) {
-          final match = widget.allSongs.firstWhere(
-            (s) => s.id == id,
-            orElse: () => Song(id: -1, title: '', uri: '', duration: 0),
-          );
-          if (match.uri.isNotEmpty) _favorites.add(match);
+      for (final data in favDataList) {
+        // Support both old format (String ID) and new format (Map with full song data)
+        final id;
+        if (data is String) {
+          id = int.tryParse(data);
+        } else if (data is Map<String, dynamic>) {
+          id = data['id'] as int? ?? 0;
+        } else {
+          continue;
         }
+
+        // Try to find in local library first (gets updated metadata/artwork)
+        final match = widget.allSongs.firstWhere(
+          (s) => s.id == id,
+          orElse: () {
+            // Streaming song not in local library — reconstruct from stored data
+            if (data is Map<String, dynamic>) {
+              return Song(
+                id: id,
+                title: data['title'] as String? ?? 'Unknown',
+                uri: data['uri'] as String? ?? '',
+                duration: data['duration'] as int? ?? 0,
+                artist: data['artist'] as String?,
+                streamSource: StreamSource.values.firstWhere(
+                  (e) => e.name == (data['streamSource'] as String?),
+                  orElse: () => StreamSource.local,
+                ),
+              );
+            }
+            return Song(id: -1, title: '', uri: '', duration: 0);
+          },
+        );
+        if (match.uri.isNotEmpty) _favorites.add(match);
       }
     });
   }
@@ -1104,8 +1128,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      setState(() {
        _playCounts[songToPlay.id] = (_playCounts[songToPlay.id] ?? 0) + 1;
        // Move to front of recently played (remove if already there first)
-       _recentlyPlayed.removeWhere((s) => s.id == songToPlay.id);
-       _recentlyPlayed.insert(0, songToPlay);
+       // Store original song (with webpage URL), not resolved copy with CDN stream URL
+       _recentlyPlayed.removeWhere((s) => s.id == song.id);
+       _recentlyPlayed.insert(0, song);
        _currentSong = songToPlay;
 
        // Set up the play queue for continuous playback
@@ -1349,6 +1374,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       'id': DateTime.now().millisecondsSinceEpoch,
       'name': name.trim(),
       'songIds': List<int>.from(gridSongs.map((s) => s.id)),
+      'songData': gridSongs.map((s) => s.toJson()).toList(),
     };
 
     setState(() {
@@ -1367,8 +1393,24 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       if (found.isNotEmpty) {
         resolvedSongs.add(found.first);
       } else {
-        // Song no longer in library — reconstruct from stored data
-        // Try to find by ID in mixes or skip
+        // Streaming song not in local library — reconstruct from mix data
+        final songDataList = mix['songData'] as List? ?? [];
+        for (final data in songDataList) {
+          if ((data['id'] as int?) == id) {
+            resolvedSongs.add(Song(
+              id: id,
+              title: data['title'] as String? ?? 'Unknown',
+              uri: data['uri'] as String? ?? '',
+              duration: data['duration'] as int? ?? 0,
+              artist: data['artist'] as String?,
+              streamSource: StreamSource.values.firstWhere(
+                (e) => e.name == (data['streamSource'] as String?),
+                orElse: () => StreamSource.local,
+              ),
+            ));
+            break;
+          }
+        }
       }
     }
 
@@ -2539,7 +2581,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     if (_isFavorite(song.id)) return;
     setState(() => _favorites.add(song));
     await AppSettings.saveFavorites(
-      _favorites.map((s) => s.id.toString()).toList(),
+      _favorites.map((s) => s.toJson()).toList(),
     );
   }
 
@@ -2547,7 +2589,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   Future<void> _removeFromFavorites(int songId) async {
     setState(() => _favorites.removeWhere((s) => s.id == songId));
     await AppSettings.saveFavorites(
-      _favorites.map((s) => s.id.toString()).toList(),
+      _favorites.map((s) => s.toJson()).toList(),
     );
   }
 

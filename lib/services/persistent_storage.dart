@@ -275,29 +275,41 @@ class PersistentStorage {
 
   // -- Favorites (List<String> of song IDs) --
 
-  static Future<List<String>> loadFavorites() async {
+  static Future<List<dynamic>> loadFavorites() async {
     if (!Platform.isAndroid) {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getStringList('favorites') ?? [];
+      final raw = prefs.getString('favorites_v2');
+      if (raw == null || raw.isEmpty) return [];
+      try {
+        final list = jsonDecode(raw) as List<dynamic>;
+        return list.map((e) => e as Map<String, dynamic>).toList();
+      } catch (_) {
+        // Fallback to old format for migration
+        final oldList = prefs.getStringList('favorites') ?? [];
+        if (oldList.isNotEmpty) {
+          return oldList; // Return old string IDs — main.dart handles both formats
+        }
+        return [];
+      }
     }
 
     final data = await _readJsonAsync(_kFavorites);
     if (data is! List<dynamic>) return [];
     try {
-      return data.map((e) => e as String).toList();
+      return data.map((e) => e as Map<String, dynamic>).toList();
     } catch (_) {
       return [];
     }
   }
 
-  static Future<void> saveFavorites(List<String> ids) async {
+  static Future<void> saveFavorites(List<Map<String, dynamic>> songDataList) async {
     if (!Platform.isAndroid) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList('favorites', ids);
+      await prefs.setString('favorites_v2', jsonEncode(songDataList));
       return;
     }
     
-    await _writeJson(_kFavorites, ids);
+    await _writeJson(_kFavorites, songDataList);
   }
 
   // -- Show album art toggle (bool) --

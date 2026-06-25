@@ -71,13 +71,13 @@ class AppSettings {
   // -- Favorites (List<String> of song IDs) --
 
   /// Load favorites list (list of song IDs as strings).
-  static Future<List<String>> loadFavorites() async {
+  static Future<List<dynamic>> loadFavorites() async {
     return PersistentStorage.loadFavorites();
   }
 
   /// Save favorites list.
-  static Future<void> saveFavorites(List<String> ids) async {
-    await PersistentStorage.saveFavorites(ids);
+  static Future<void> saveFavorites(List<Map<String, dynamic>> songDataList) async {
+    await PersistentStorage.saveFavorites(songDataList);
   }
 
   // -- Show album art toggle --
