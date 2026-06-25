@@ -15,8 +15,8 @@ dependencies:
   shared_preferences: ^2.3.2
   mpv_audio_kit:
     git:
+      ref: main
       url: https://github.com/spkelevra/mpv_audio_kit.git
-      ref: experiment/ytdl-enabled
   on_audio_query:
     git:
       url: https://github.com/spkelevra/on_audio_query.git

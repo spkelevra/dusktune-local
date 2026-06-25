@@ -316,8 +316,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "experiment/ytdl-enabled"
-      resolved-ref: a7a12c7947255eb7ba11fc336fd1ec6b22059b7d
+      ref: main
+      resolved-ref: "06a74ea433bde8a3acc2824298046670fdd4a82d"
       url: "https://github.com/spkelevra/mpv_audio_kit.git"
     source: git
     version: "0.4.2"
