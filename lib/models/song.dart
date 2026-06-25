@@ -119,6 +119,7 @@ class Song {
          'album': album,
          'duration': duration,
          'uri': uri,
+         'thumbnailUrl': thumbnailUrl,
          'streamSource': streamSource.name,
        };
 

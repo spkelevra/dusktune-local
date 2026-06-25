@@ -1319,12 +1319,21 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           final songData = entry.value;
           final song = allSongs.firstWhere(
             (s) => s.id == songData['id'],
-            orElse: () => Song(
-              id: songData['id'] as int,
-              title: songData['title'] as String? ?? 'Unknown',
-              uri: songData['uri'] as String? ?? '',
-              duration: songData['duration'] as int? ?? 0,
-            ),
+            orElse: () {
+              // Streaming song not in local library — reconstruct from stored data
+              return Song(
+                id: songData['id'] as int,
+                title: songData['title'] as String? ?? 'Unknown',
+                uri: songData['uri'] as String? ?? '',
+                duration: songData['duration'] as int? ?? 0,
+                artist: songData['artist'] as String?,
+                thumbnailUrl: songData['thumbnailUrl'] as String?,
+                streamSource: StreamSource.values.firstWhere(
+                  (e) => e.name == (songData['streamSource'] as String?),
+                  orElse: () => StreamSource.local,
+                ),
+              );
+            },
           );
           _pinnedGrid[entry.key] = song;
         }
