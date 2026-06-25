@@ -257,6 +257,7 @@ class YtDlpService {
 
     try {
       // Use randomized queries for variety — yt-dlp search is deterministic so we randomize the query
+      // Mix of genre-based (60%) and artist-based (40%) searches for maximum variety
       final rng = math.Random();
       final genres = [
         'electronic', 'lofi hip hop', 'ambient', 'jazz', 'rock', 'indie',
@@ -264,17 +265,33 @@ class YtDlpService {
         'classical crossover', 'funk', 'soul', 'rnb', 'pop instrumental',
         'dubstep', 'trance', 'techno', 'folk acoustic', 'jazz fusion',
       ];
+      final artists = [
+        'Flume', 'ODESZA', 'Tame Impala', 'Bonobo', 'Tycho',
+        'Khruangbin', 'FKJ', 'Jamie xx', 'Caribou', 'Four Tet',
+        'Disclosure', 'Rüfüs Du Sol', 'Peggy Gou', 'Nujabes', 'Umi',
+        'Emancipator', 'Kiasmos', 'Amon Tobin', 'Floating Points', 'Hudson Mohawke',
+      ];
+      final suffixes = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
+
       final query;
       if (genre != null && genre.isNotEmpty) {
-        query = '$genre';
-      } else {
-        // Pick a random genre and add variety suffixes
-        final pickedGenre = genres[rng.nextInt(genres.length)];
-        final suffixes = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
+        // User-specified genre — still add variety with random suffix
         final suffix = suffixes[rng.nextInt(suffixes.length)];
-        query = '$pickedGenre $suffix';
+        query = '$genre $suffix';
+      } else {
+        // 60% genre-based, 40% artist-based for variety
+        if (rng.nextDouble() < 0.6) {
+          final pickedGenre = genres[rng.nextInt(genres.length)];
+          final suffix = suffixes[rng.nextInt(suffixes.length)];
+          query = '$pickedGenre $suffix';
+        } else {
+          // Artist search — pulls tracks by/featuring that artist from SoundCloud
+          final pickedArtist = artists[rng.nextInt(artists.length)];
+          query = '$pickedArtist';
+        }
       }
 
+      debugPrint('SoundCloud shuffle query: $query');
       final result = await Process.run(
         _ytDlpPath!,
         [
