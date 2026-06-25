@@ -4,14 +4,22 @@ library;
 import 'dart:typed_data';
 import 'package:on_audio_query/on_audio_query.dart';
 
+/// Source of the song — local file or streaming service.
+enum StreamSource {
+  local,      // Local file (content:// or file://)
+  soundcloud, // SoundCloud stream
+  youtube,    // YouTube stream
+}
+
 class Song {
   final int id;
   final String title;
   final String? artist;
   final String? album;
   final int duration;       // Duration in milliseconds
-  final String uri;         // Content URI or file path for playback
+  final String uri;         // Content URI, file path, or streaming URL
   final Uint8List? artworkBytes; // Cached album art thumbnail (JPEG)
+  final StreamSource streamSource; // Source type (local vs streaming)
 
   const Song({
     required this.id,
@@ -21,6 +29,7 @@ class Song {
     required this.duration,
     required this.uri,
     this.artworkBytes,
+    this.streamSource = StreamSource.local,
   });
 
   /// Alias for [duration] in milliseconds — used by UI widgets.
@@ -40,76 +49,84 @@ class Song {
       : title;
 
   /// Create a [Song] from an [on_audio_query] SongModel entry (Android).
-  factory Song.fromSongModel(SongModel songModel) {
-    return Song(
-      id: songModel.id,
-      title: songModel.title,
-      artist: songModel.artist,
-      album: songModel.album,
-      duration: songModel.duration ?? 0,
-      uri: songModel.data,
-    );
-  }
+   factory Song.fromSongModel(SongModel songModel) {
+     return Song(
+       id: songModel.id,
+       title: songModel.title,
+       artist: songModel.artist,
+       album: songModel.album,
+       duration: songModel.duration ?? 0,
+       uri: songModel.data,
+       streamSource: StreamSource.local,
+     );
+   }
 
- /// Create a [Song] from a map of metadata (desktop scanner).
-  factory Song.fromMap({
-    required int id,
-    required String title,
-    String? artist,
-    String? album,
-    int duration = 0,
-    required String uri,
-    Uint8List? artworkBytes,
-  }) {
-    return Song(
-      id: id,
-      title: title,
-      artist: artist,
-      album: album,
-      duration: duration,
-      uri: uri,
-      artworkBytes: artworkBytes,
-    );
-  }
+   /// Create a [Song] from a map of metadata (desktop scanner).
+   factory Song.fromMap({
+     required int id,
+     required String title,
+     String? artist,
+     String? album,
+     int duration = 0,
+     required String uri,
+     Uint8List? artworkBytes,
+   }) {
+     return Song(
+       id: id,
+       title: title,
+       artist: artist,
+       album: album,
+       duration: duration,
+       uri: uri,
+       artworkBytes: artworkBytes,
+       streamSource: StreamSource.local,
+     );
+   }
 
-  /// Create a copy of this song with updated fields.
-  Song copyWith({
-    int? id,
-    String? title,
-    String? artist,
-    String? album,
-    int? duration,
-    String? uri,
-    Uint8List? artworkBytes,
-  }) {
-    return Song(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      artist: artist ?? this.artist,
-      album: album ?? this.album,
-      duration: duration ?? this.duration,
-      uri: uri ?? this.uri,
-      artworkBytes: artworkBytes ?? this.artworkBytes,
-    );
-  }
+   /// Create a copy of this song with updated fields.
+   Song copyWith({
+     int? id,
+     String? title,
+     String? artist,
+     String? album,
+     int? duration,
+     String? uri,
+     Uint8List? artworkBytes,
+     StreamSource? streamSource,
+   }) {
+     return Song(
+       id: id ?? this.id,
+       title: title ?? this.title,
+       artist: artist ?? this.artist,
+       album: album ?? this.album,
+       duration: duration ?? this.duration,
+       uri: uri ?? this.uri,
+       artworkBytes: artworkBytes ?? this.artworkBytes,
+       streamSource: streamSource ?? this.streamSource,
+     );
+   }
 
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'artist': artist,
-        'album': album,
-        'duration': duration,
-        'uri': uri,
-      };
+   Map<String, dynamic> toJson() => {
+         'id': id,
+         'title': title,
+         'artist': artist,
+         'album': album,
+         'duration': duration,
+         'uri': uri,
+         'streamSource': streamSource.name,
+       };
 
-  factory Song.fromJson(Map<String, dynamic> json) => Song(
-        id: json['id'] as int,
-        title: json['title'] as String,
-        artist: json['artist'] as String?,
-        album: json['album'] as String?,
-        duration: json['duration'] as int,
-        uri: json['uri'] as String,
-      );
+   factory Song.fromJson(Map<String, dynamic> json) => Song(
+         id: json['id'] as int,
+         title: json['title'] as String,
+         artist: json['artist'] as String?,
+         album: json['album'] as String?,
+         duration: json['duration'] as int,
+         uri: json['uri'] as String,
+         streamSource: json['streamSource'] != null 
+             ? StreamSource.values.firstWhere((e) => e.name == json['streamSource'])
+             : StreamSource.local,
+       );
 
   @override
   bool operator ==(Object other) =>

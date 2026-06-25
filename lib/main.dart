@@ -14,6 +14,8 @@ import 'services/music_library.dart';
 import 'services/music_scanner.dart' as desktop_scanner;
 import 'services/app_settings.dart';
 import 'services/ambient_light_service.dart';
+import 'services/soundcloud_service.dart';
+import 'services/youtube_service.dart';
 import 'widgets/rotary_filter_knob.dart';
 import 'widgets/tile_pattern.dart';
 import 'package:mpv_audio_kit/mpv_audio_kit.dart';
@@ -73,10 +75,24 @@ class _AppRootState extends State<AppRoot> {
   List<Song> _songs = [];
   int _tabIndex = 0; // 0=home, 1=library, 2=mixes, 3=favorites, 4=settings (desktop)
   bool _needsFolderSetup = false; // Desktop: no music folders configured yet
+  
+  // Streaming mode state
+  String _sourceMode = 'local'; // 'local' | 'soundcloud' | 'youtube'
+  List<Song> _streamQueue = []; // Currently loaded streaming tracks
+  final SoundCloudService _scService = SoundCloudService();
+  final YouTubeService _ytService = YouTubeService();
 
   @override
   void initState() {
     super.initState();
+    // Initialize streaming services in background
+    _scService.init().then((available) {
+      if (available) {
+        debugPrint('yt-dlp available for streaming');
+      } else {
+        debugPrint('yt-dlp not found — streaming disabled');
+      }
+    });
     _loadLibrary();
   }
 
@@ -194,15 +210,17 @@ class _AppRootState extends State<AppRoot> {
     }
 
     return DuskTuneShell(
-      allSongs: _songs,
-      tabIndex: _tabIndex,
-      onTabChanged: setTab,
-      isDesktop: _isDesktop,
-    );
-  }
-}
-
-
+       allSongs: _songs,
+       tabIndex: _tabIndex,
+       onTabChanged: setTab,
+       isDesktop: _isDesktop,
+       sourceMode: _sourceMode,
+       onSourceModeChanged: (mode) => setState(() => _sourceMode = mode),
+       scService: _scService,
+       ytService: _ytService,
+     );
+    }
+    }
 /// Visualizer style enum — persisted as string.
 enum _VizStyle { bars, wave, dots, circles, peakhold }
 
@@ -673,6 +691,11 @@ class DuskTuneShell extends StatefulWidget {
   final int tabIndex;
   final ValueChanged<int> onTabChanged;
   final bool isDesktop;
+  // Streaming mode parameters
+  final String sourceMode;
+  final ValueChanged<String> onSourceModeChanged;
+  final SoundCloudService scService;
+  final YouTubeService ytService;
 
   const DuskTuneShell({
     super.key,
@@ -680,6 +703,10 @@ class DuskTuneShell extends StatefulWidget {
     required this.tabIndex,
     required this.onTabChanged,
     this.isDesktop = false,
+    this.sourceMode = 'local',
+    required this.onSourceModeChanged,
+    required this.scService,
+    required this.ytService,
   });
 
   @override
@@ -1044,36 +1071,71 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// If [queue] is provided, use it for next/previous navigation.
   /// If omitted, default to alphabetical (allSongs).
   void playSong(Song song, {List<Song>? queue}) async {
-    _isTransitioning = true;
-    // Reset fade state so new track starts at full volume
-    if (!_isDesktop) {
-      _resetFadeState();
-    }
-    // Track play count and recent order
-    setState(() {
-      _playCounts[song.id] = (_playCounts[song.id] ?? 0) + 1;
-      // Move to front of recently played (remove if already there first)
-      _recentlyPlayed.removeWhere((s) => s.id == song.id);
-      _recentlyPlayed.insert(0, song);
-      _currentSong = song;
+     _isTransitioning = true;
+     // Reset fade state so new track starts at full volume
+     if (!_isDesktop) {
+       _resetFadeState();
+     }
 
-      // Set up the play queue for continuous playback
-      final effectiveQueue = queue ?? widget.allSongs;
-      _playQueue = effectiveQueue;
-      _playQueueIndex = _playQueue.indexWhere((s) => s.id == song.id);
-    });
-    // Persist play counts to disk
-    _savePlayCounts();
-    await AudioPlayerService.playSong(song);
-    // Force UI sync — stream may not have emitted yet on desktop release builds
-    if (mounted) {
-      setState(() {
-        _isPlaying = AudioPlayerService.isPlaying;
-        _isTransitioning =
-            false; // Clear transition flag so next auto-advance can fire
-      });
+     // Resolve stream URL for streaming sources before playback
+     Song songToPlay = song;
+     if (song.streamSource != StreamSource.local && widget.sourceMode != 'local') {
+       try {
+         final resolvedUri = await _resolveStreamUrl(song);
+         if (resolvedUri != null) {
+           songToPlay = song.copyWith(uri: resolvedUri);
+           debugPrint('Resolved stream URL for ${song.title}');
+         } else {
+           debugPrint('Failed to resolve stream URL for ${song.title}');
+           _isTransitioning = false;
+           return;
+         }
+       } catch (e) {
+         debugPrint('Stream resolution error: $e');
+         _isTransitioning = false;
+         return;
+       }
+     }
+
+     // Track play count and recent order
+     setState(() {
+       _playCounts[songToPlay.id] = (_playCounts[songToPlay.id] ?? 0) + 1;
+       // Move to front of recently played (remove if already there first)
+       _recentlyPlayed.removeWhere((s) => s.id == songToPlay.id);
+       _recentlyPlayed.insert(0, songToPlay);
+       _currentSong = songToPlay;
+
+       // Set up the play queue for continuous playback
+       final effectiveQueue = queue ?? widget.allSongs;
+       _playQueue = effectiveQueue;
+       _playQueueIndex = _playQueue.indexWhere((s) => s.id == songToPlay.id);
+     });
+     // Persist play counts to disk
+     _savePlayCounts();
+     await AudioPlayerService.playSong(songToPlay);
+     // Force UI sync — stream may not have emitted yet on desktop release builds
+     if (mounted) {
+       setState(() {
+         _isPlaying = AudioPlayerService.isPlaying;
+         _isTransitioning =
+             false; // Clear transition flag so next auto-advance can fire
+       });
+     }
+   }
+
+   /// Resolve a stream URL for the given song using the active source service.
+    Future<String?> _resolveStreamUrl(Song song) async {
+      try {
+        if (widget.sourceMode == 'soundcloud') {
+          return await widget.scService.resolveStreamUrl(song);
+        } else if (widget.sourceMode == 'youtube') {
+          return await widget.ytService.resolveStreamUrl(song);
+        }
+      } catch (e) {
+        debugPrint('_resolveStreamUrl error: $e');
+      }
+      return null;
     }
-  }
 
   /// Get top N songs by play count, sorted descending.
   List<Song> getTopSongs(int n) {
@@ -1114,15 +1176,40 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     bool _topsFirstUse = true;
 
     /// Shuffle the top 9 to random songs — does NOT start playback.
-  void shuffleTopNine(BuildContext context) {
-    final rng = math.Random();
-    final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
-    setState(() {
-      _shuffledTopNine = shuffled.take(9).toList();
-      _showingMix = false;
-      _mixGridSongs = null;
-    });
-  }
+     /// When in streaming mode, fetches random tracks from the active source instead.
+     Future<void> shuffleTopNine(BuildContext context) async {
+       final rng = math.Random();
+
+       // Streaming mode: fetch random tracks from the active service
+       if (widget.sourceMode != 'local') {
+         try {
+           List<Song>? tracks;
+           if (widget.sourceMode == 'soundcloud') {
+             tracks = await widget.scService.getRandomTracks(9);
+           } else if (widget.sourceMode == 'youtube') {
+             tracks = await widget.ytService.getRandomTracks(9);
+           }
+           if (tracks != null && tracks.isNotEmpty) {
+             setState(() {
+               _shuffledTopNine = tracks!.take(9).toList();
+               _showingMix = false;
+               _mixGridSongs = null;
+             });
+             return;
+           }
+         } catch (e) {
+           debugPrint('shuffleTopNine streaming fetch failed: $e');
+         }
+       }
+
+       // Local mode: shuffle from local library
+       final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
+       setState(() {
+         _shuffledTopNine = shuffled.take(9).toList();
+         _showingMix = false;
+         _mixGridSongs = null;
+       });
+     }
 
   /// Reset top picks back to most-played ranking.
     void resetTopPicks() {
@@ -1698,14 +1785,49 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
              const SizedBox(width: 4),
              _tabIcon(PhosphorIcons.fireFill, 3),
               // Settings tab
-                   const SizedBox(width: 4),
-                  _tabIcon(Icons.tune, 4),
-             ],
-             ),
-             );
-             }
+                    const SizedBox(width: 4),
+                   _tabIcon(Icons.tune, 4),
+               // Source mode switcher (desktop only for now)
+               if (_isDesktop) ...[
+                 const SizedBox(width: 8),
+                 const VerticalDivider(color: Colors.white24, thickness: 1),
+                 const SizedBox(width: 4),
+                 _buildSourceModeSwitcher(),
+               ],
+              ],
+              ),
+              );
+              }
 
-             Widget _tabIcon(IconData icon, int index) {
+              /// Dropdown/button to switch between local, SoundCloud, and YouTube sources.
+              Widget _buildSourceModeSwitcher() {
+              final modes = ['local', 'soundcloud', 'youtube'];
+              final labels = {'local': 'Local', 'soundcloud': 'SoundCloud', 'youtube': 'YouTube'};
+              return DropdownButton<String>(
+              value: widget.sourceMode,
+              underline: const SizedBox.shrink(),
+              dropdownColor: Colors.grey[850],
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+              items: modes.map((m) => DropdownMenuItem(
+              value: m,
+              child: Text(labels[m]!, style: const TextStyle(fontSize: 12)),
+              )).toList(),
+              onChanged: (value) {
+              if (value != null && value != widget.sourceMode) {
+              widget.onSourceModeChanged(value);
+              // Reset grid state when switching modes
+              setState(() {
+               _shuffledTopNine = null;
+               _toppedNine = null;
+               _showingMix = false;
+               _mixGridSongs = null;
+              });
+              }
+              },
+              );
+              }
+
+              Widget _tabIcon(IconData icon, int index) {
     final isActive = widget.tabIndex == index;
     return IconButton(
       onPressed: () => widget.onTabChanged(index),
@@ -2492,14 +2614,45 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
       setState(() => _isSearching = true);
-      final lib = MusicLibrary();
-      await lib.init();
-      final results = await lib.search(q);
-      if (mounted) {
-        setState(() {
-          _searchResults = results;
-          _isSearching = false;
-        });
+
+      // In streaming mode, search the active service instead of local library
+      if (widget.sourceMode == 'soundcloud') {
+        try {
+          final results = await widget.scService.search(q, limit: 50);
+          if (mounted) {
+            setState(() {
+              _searchResults = results;
+              _isSearching = false;
+            });
+          }
+        } catch (e) {
+          debugPrint('SoundCloud search error: $e');
+          if (mounted) setState(() => _isSearching = false);
+        }
+      } else if (widget.sourceMode == 'youtube') {
+        try {
+          final results = await widget.ytService.search(q, limit: 50);
+          if (mounted) {
+            setState(() {
+              _searchResults = results;
+              _isSearching = false;
+            });
+          }
+        } catch (e) {
+          debugPrint('YouTube search error: $e');
+          if (mounted) setState(() => _isSearching = false);
+        }
+      } else {
+        // Local mode: search local library
+        final lib = MusicLibrary();
+        await lib.init();
+        final results = await lib.search(q);
+        if (mounted) {
+          setState(() {
+            _searchResults = results;
+            _isSearching = false;
+          });
+        }
       }
     });
   }
