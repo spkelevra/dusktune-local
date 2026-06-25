@@ -1790,13 +1790,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               // Settings tab
                     const SizedBox(width: 4),
                    _tabIcon(Icons.tune, 4),
-               // Source mode switcher (desktop only for now)
-               if (_isDesktop) ...[
+               // Source mode switcher (all platforms)
                  const SizedBox(width: 8),
                  const VerticalDivider(color: Colors.white24, thickness: 1),
                  const SizedBox(width: 4),
                  _buildSourceModeSwitcher(),
-               ],
               ],
               ),
               );
