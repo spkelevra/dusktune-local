@@ -15,6 +15,11 @@ class YtDlpService {
   factory YtDlpService() => _instance;
   YtDlpService._internal();
 
+  // In-memory stream URL cache — no persistent storage, cleared on app close.
+  static final _urlCache = <String, String>{};
+  static YoutubeExplode? _ytInstance;
+  static SoundcloudClient? _scInstance;
+
   /// Always available — no external binary needed.
   bool get isAvailable => true;
 
@@ -89,7 +94,13 @@ class YtDlpService {
 
   /// Resolve a SoundCloud track to its direct stream URL.
   Future<String?> _resolveSoundCloud(String uri) async {
-    final client = SoundcloudClient();
+    // Check cache first — avoids network call entirely on replay
+    if (_urlCache.containsKey(uri)) {
+      debugPrint('YtDlpService._resolveSoundCloud: using cached URL for $uri');
+      return _urlCache[uri];
+    }
+
+    final client = _scInstance ??= SoundcloudClient();
     try {
       debugPrint('YtDlpService._resolveSoundCloud: fetching track from $uri');
       final track = await client.tracks.getByUrl(uri);
@@ -98,25 +109,30 @@ class YtDlpService {
       for (final stream in streams) {
         if (!stream.isSnipped) {
           debugPrint('YtDlpService._resolveSoundCloud: got non-snipped stream');
+          _urlCache[uri] = stream.url!; // Cache for replay
           return stream.url;
         }
       }
       if (streams.isNotEmpty) {
         debugPrint('YtDlpService._resolveSoundCloud: using snipped stream as fallback');
-        return streams.first.url;
+        final url = streams.first.url!;
+        _urlCache[uri] = url; // Cache for replay
+        return url;
       }
       debugPrint('YtDlpService._resolveSoundCloud: no streams found');
       return null;
     } catch (e, st) {
       debugPrint('YtDlpService._resolveSoundCloud error: $e\n$st');
       return null;
+    } finally {
+      // Don't close — reused across calls via _scInstance singleton
     }
   }
 
   /// Search YouTube for tracks matching a query.
   Future<List<Song>> searchYouTube(String query, {int limit = 9}) async {
     debugPrint('YtDlpService.searchYouTube: "$query" (limit=$limit)');
-    final yt = YoutubeExplode();
+    final yt = _ytInstance ??= YoutubeExplode();
     final songs = <Song>[];
     try {
       final results = await yt.search.search(query);
@@ -141,7 +157,7 @@ class YtDlpService {
     } catch (e, st) {
       debugPrint('YtDlpService.searchYouTube error: $e\n$st');
     } finally {
-      yt.close();
+      // Don't close — reused via _ytInstance singleton
     }
     return songs;
   }
@@ -149,7 +165,7 @@ class YtDlpService {
   /// Search SoundCloud for tracks matching a query.
   Future<List<Song>> searchSoundCloud(String query, {int limit = 9}) async {
     debugPrint('YtDlpService.searchSoundCloud: "$query" (limit=$limit)');
-    final client = SoundcloudClient();
+    final client = _scInstance ??= SoundcloudClient();
     final songs = <Song>[];
     try {
       var count = 0;
