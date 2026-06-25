@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import '../models/song.dart';
 
 /// Service for resolving streaming URLs via yt-dlp.
@@ -250,17 +251,28 @@ class YtDlpService {
 
   /// Get random/trending tracks from SoundCloud.
   ///
-  /// Uses yt-dlp's ability to pull from SoundCloud charts/trending endpoints.
+  /// Uses randomized search queries to get variety instead of the same results each time.
   Future<List<Song>> getRandomSoundcloudTracks(int count, {String? genre}) async {
     if (!isAvailable) return [];
 
     try {
-      // Try trending/charts endpoint via yt-dlp
-      String playlistUrl;
+      // Use randomized queries for variety — yt-dlp search is deterministic so we randomize the query
+      final rng = math.Random();
+      final genres = [
+        'electronic', 'lofi hip hop', 'ambient', 'jazz', 'rock', 'indie',
+        'chill beats', 'synthwave', 'house music', 'drum and bass',
+        'classical crossover', 'funk', 'soul', 'rnb', 'pop instrumental',
+        'dubstep', 'trance', 'techno', 'folk acoustic', 'jazz fusion',
+      ];
+      final query;
       if (genre != null && genre.isNotEmpty) {
-        playlistUrl = 'scsearch$count:$genre';
+        query = '$genre';
       } else {
-        playlistUrl = 'scsearch$count:trending music';
+        // Pick a random genre and add variety suffixes
+        final pickedGenre = genres[rng.nextInt(genres.length)];
+        final suffixes = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
+        final suffix = suffixes[rng.nextInt(suffixes.length)];
+        query = '$pickedGenre $suffix';
       }
 
       final result = await Process.run(
@@ -270,7 +282,7 @@ class YtDlpService {
           '--no-playlist',
           '--flat-playlist',
           '--no-warnings',
-          playlistUrl,
+          'scsearch${count * 3}:$query',
         ],
         runInShell: true,
       );
@@ -291,7 +303,10 @@ class YtDlpService {
           }
         }
 
-        return songs;
+        // Shuffle client-side for true randomness
+        final rng2 = math.Random();
+        songs.shuffle(rng2);
+        return songs.take(count).toList();
       }
 
       return [];
@@ -306,14 +321,32 @@ class YtDlpService {
     if (!isAvailable) return [];
 
     try {
-      String searchQuery;
+      // Use randomized queries for variety — yt-dlp search is deterministic so we randomize the query
+      final rng = math.Random();
+      final genres = [
+        'electronic', 'lofi hip hop', 'ambient', 'jazz', 'rock', 'indie',
+        'chill beats', 'synthwave', 'house music', 'drum and bass',
+        'classical crossover', 'funk', 'soul', 'rnb', 'pop instrumental',
+        'dubstep', 'trance', 'techno', 'folk acoustic', 'jazz fusion',
+      ];
+      final query;
       if (genre != null && genre.isNotEmpty) {
-        searchQuery = '$genre music';
+        query = '$genre music';
       } else {
-        searchQuery = 'trending music';
+        // Pick a random genre and add variety suffixes
+        final pickedGenre = genres[rng.nextInt(genres.length)];
+        final suffixes = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
+        final suffix = suffixes[rng.nextInt(suffixes.length)];
+        query = '$pickedGenre $suffix';
       }
 
-      return await searchYouTube(searchQuery, limit: count);
+      // Fetch more results than needed, then shuffle client-side for true randomness
+      final allTracks = await searchYouTube(query, limit: count * 3);
+      if (allTracks.isEmpty) return [];
+      
+      // Shuffle and take the requested count
+      final shuffled = List<Song>.from(allTracks)..shuffle(rng);
+      return shuffled.take(count).toList();
     } catch (e) {
       debugPrint('YouTube trending error: $e');
       return [];

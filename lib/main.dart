@@ -1079,7 +1079,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
      // Resolve stream URL for streaming sources before playback
      Song songToPlay = song;
-     if (song.streamSource != StreamSource.local && widget.sourceMode != 'local') {
+     // Resolve stream URL for streaming songs regardless of current source mode
+     // This allows pinned SoundCloud/YouTube songs to play even in Local mode
+     if (song.streamSource != StreamSource.local) {
        try {
          final resolvedUri = await _resolveStreamUrl(song);
          if (resolvedUri != null) {
@@ -1123,12 +1125,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      }
    }
 
-   /// Resolve a stream URL for the given song using the active source service.
+   /// Resolve a stream URL for the given song using its own source type.
+    /// Uses song.streamSource so pinned streaming songs play even in Local mode.
     Future<String?> _resolveStreamUrl(Song song) async {
       try {
-        if (widget.sourceMode == 'soundcloud') {
+        if (song.streamSource == StreamSource.soundcloud) {
           return await widget.scService.resolveStreamUrl(song);
-        } else if (widget.sourceMode == 'youtube') {
+        } else if (song.streamSource == StreamSource.youtube) {
           return await widget.ytService.resolveStreamUrl(song);
         }
       } catch (e) {
