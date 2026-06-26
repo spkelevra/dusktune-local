@@ -1220,7 +1220,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           }
           if (tracks != null && tracks.isNotEmpty) {
             setState(() {
-              _shuffledTopNine = tracks.take(9).toList();
+              _shuffledTopNine = tracks!.take(9).toList();
               _showingMix = false;
               _mixGridSongs = null;
             });
