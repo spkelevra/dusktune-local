@@ -1207,38 +1207,41 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     /// Shuffle the top 9 to random songs — does NOT start playback.
      /// When in streaming mode, fetches random tracks from the active source instead.
      Future<void> shuffleTopNine(BuildContext context) async {
-       final rng = math.Random();
+      final rng = math.Random();
 
-       // Streaming mode: fetch random tracks from the active service
-       if (widget.sourceMode != 'local') {
-         try {
-           List<Song>? tracks;
-           if (widget.sourceMode == 'soundcloud') {
-             tracks = await widget.scService.getRandomTracks(9);
-           } else if (widget.sourceMode == 'youtube') {
-             tracks = await widget.ytService.getRandomTracks(9);
-           }
-           if (tracks != null && tracks.isNotEmpty) {
-             setState(() {
-               _shuffledTopNine = tracks!.take(9).toList();
-               _showingMix = false;
-               _mixGridSongs = null;
-             });
-             return;
-           }
-         } catch (e) {
-           debugPrint('shuffleTopNine streaming fetch failed: $e');
-         }
-       }
+      // Streaming mode: fetch random tracks from the active service
+      if (widget.sourceMode != 'local') {
+        try {
+          List<Song>? tracks;
+          if (widget.sourceMode == 'soundcloud') {
+            tracks = await widget.scService.getRandomTracks(9);
+          } else if (widget.sourceMode == 'youtube') {
+            tracks = await widget.ytService.getRandomTracks(9);
+          }
+          if (tracks != null && tracks.isNotEmpty) {
+            // Option B: extract artwork in-memory only for shuffled songs
+            final extracted = await ArtworkExtractor.extractForSongsInMemory(tracks);
+            setState(() {
+              _shuffledTopNine = extracted.take(9).toList();
+              _showingMix = false;
+              _mixGridSongs = null;
+            });
+            return;
+          }
+        } catch (e) {
+          debugPrint('shuffleTopNine streaming fetch failed: $e');
+        }
+      }
 
-       // Local mode: shuffle from local library
-       final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
-       setState(() {
-         _shuffledTopNine = shuffled.take(9).toList();
-         _showingMix = false;
-         _mixGridSongs = null;
-       });
-     }
+      // Local mode: shuffle from local library and extract artwork in-memory
+      final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
+      final extracted = await ArtworkExtractor.extractForSongsInMemory(shuffled);
+      setState(() {
+        _shuffledTopNine = extracted.take(9).toList();
+        _showingMix = false;
+        _mixGridSongs = null;
+      });
+    }
 
   /// Reset top picks back to most-played ranking.
     void resetTopPicks() {

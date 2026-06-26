@@ -39,34 +39,48 @@ class ArtworkExtractor {
   }
 
   /// Extract and cache album artwork for a list of songs.
-    /// Returns the updated song list with artworkBytes populated where available.
-    /// 
-    /// Only runs extraction if [showAlbumArt] is enabled in settings.
-    /// Skips songs that already have cached thumbnails.
-    static Future<List<Song>> extractForSongs(List<Song> songs) async {
-      final showArt = await AppSettings.loadShowAlbumArt();
-      if (!showArt || songs.isEmpty) return songs;
+  /// Returns the updated song list with artworkBytes populated where available.
+  /// 
+  /// Only runs extraction if [showAlbumArt] is enabled in settings.
+  /// Skips songs that already have cached thumbnails.
+  static Future<List<Song>> extractForSongs(List<Song> songs) async {
+    final showArt = await AppSettings.loadShowAlbumArt();
+    if (!showArt || songs.isEmpty) return songs;
 
-      debugPrint('ArtworkExtractor: extracting for ${songs.length} songs');
+    debugPrint('ArtworkExtractor: extracting for ${songs.length} songs');
 
-      if (Platform.isAndroid) {
-        return _extractAndroid(songs);
-      } else {
-        return _extractDesktop(songs);
-      }
+    if (Platform.isAndroid) {
+      return _extractAndroid(songs);
+    } else {
+      return _extractDesktop(songs);
     }
+  }
+
+  /// Extract artwork into memory only — no disk caching.
+  /// Used for shuffle/mix grids where we want instant display without persistent storage.
+  static Future<List<Song>> extractForSongsInMemory(List<Song> songs) async {
+    if (songs.isEmpty) return songs;
+
+    debugPrint('ArtworkExtractor: extracting in-memory for ${songs.length} songs');
+
+    if (Platform.isAndroid) {
+      return _extractAndroid(songs, cacheToDisk: false);
+    } else {
+      return _extractDesktop(songs, cacheToDisk: false);
+    }
+  }
 
   // -----------------------------------------------------------------------
   // Android path — use on_audio_query MediaStore API
   // -----------------------------------------------------------------------
 
-  static Future<List<Song>> _extractAndroid(List<Song> songs) async {
+  static Future<List<Song>> _extractAndroid(List<Song> songs, {bool cacheToDisk = true}) async {
     final audioQuery = OnAudioQuery();
     final updatedSongs = <Song>[];
 
     for (final song in songs) {
-      // Check cache first
-      if (await AppSettings.hasArtwork(song.id)) {
+      // Check cache first if caching is enabled
+      if (cacheToDisk && await AppSettings.hasArtwork(song.id)) {
         final cached = await AppSettings.loadArtwork(song.id);
         if (cached != null && cached.isNotEmpty) {
           updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(cached)));
@@ -85,8 +99,10 @@ class ArtworkExtractor {
         );
 
         if (artwork != null && artwork.isNotEmpty) {
-          // Cache to disk
-          await AppSettings.saveArtwork(song.id, artwork);
+          // Cache to disk only if requested
+          if (cacheToDisk) {
+            await AppSettings.saveArtwork(song.id, artwork);
+          }
           updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(artwork)));
         } else {
           updatedSongs.add(song);
@@ -97,8 +113,9 @@ class ArtworkExtractor {
       }
     }
 
-    debugPrint('ArtworkExtractor (Android): populated artwork for '
-        '${updatedSongs.where((s) => s.artworkBytes != null).length}/${updatedSongs.length} songs');
+    final populated = updatedSongs.where((s) => s.artworkBytes != null).length;
+    final cacheMode = cacheToDisk ? 'cached' : 'in-memory';
+    debugPrint('ArtworkExtractor ($cacheMode): populated artwork for $populated/${updatedSongs.length} songs');
     return updatedSongs;
   }
 
@@ -106,7 +123,7 @@ class ArtworkExtractor {
   // Desktop path — extract APIC from MP3 files using id3 package
   // -----------------------------------------------------------------------
 
-  static Future<List<Song>> _extractDesktop(List<Song> songs) async {
+  static Future<List<Song>> _extractDesktop(List<Song> songs, {bool cacheToDisk = true}) async {
       final updatedSongs = <Song>[];
 
       for (int i = 0; i < songs.length; i++) {
@@ -117,8 +134,8 @@ class ArtworkExtractor {
           await Future<void>.delayed(Duration.zero);
         }
 
-        // Check cache first
-        if (await AppSettings.hasArtwork(song.id)) {
+        // Check cache first if caching is enabled
+        if (cacheToDisk && await AppSettings.hasArtwork(song.id)) {
           final cached = await AppSettings.loadArtwork(song.id);
           if (cached != null && cached.isNotEmpty) {
             updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(cached)));
@@ -150,7 +167,10 @@ class ArtworkExtractor {
           );
 
           if (artworkBytes != null) {
-            await AppSettings.saveArtwork(song.id, artworkBytes);
+            // Cache to disk only if requested
+            if (cacheToDisk) {
+              await AppSettings.saveArtwork(song.id, artworkBytes);
+            }
             updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(artworkBytes)));
           } else {
             updatedSongs.add(song);
@@ -161,8 +181,9 @@ class ArtworkExtractor {
         }
       }
 
-      debugPrint('ArtworkExtractor (Desktop): populated artwork for '
-          '${updatedSongs.where((s) => s.artworkBytes != null).length}/${updatedSongs.length} songs');
+      final populated = updatedSongs.where((s) => s.artworkBytes != null).length;
+      final cacheMode = cacheToDisk ? 'cached' : 'in-memory';
+      debugPrint('ArtworkExtractor ($cacheMode): populated artwork for $populated/${updatedSongs.length} songs');
       return updatedSongs;
     }
 
