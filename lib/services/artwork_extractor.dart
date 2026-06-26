@@ -1,13 +1,16 @@
+library;
+
 /// Album artwork extractor — platform-specific implementation.
 /// 
 /// On Android, uses on_audio_query to fetch artwork from MediaStore.
 /// On desktop, extracts embedded APIC frames from MP3 files via the id3 package.
 /// Results are cached to disk for fast subsequent loads.
-library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:mpv_audio_kit/mpv_audio_kit.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:id3/id3.dart' as id3_lib;
 import '../models/song.dart';
@@ -63,10 +66,72 @@ class ArtworkExtractor {
 
     debugPrint('ArtworkExtractor: extracting in-memory for ${songs.length} songs');
 
+    // Use mpv native extraction for all platforms when cacheToDisk is false
+    // This is significantly faster than Dart-side ID3 parsing or MediaStore queries
+    final extracted = await _extractViaMpv(songs);
+    
+    if (extracted != null) {
+      return extracted;
+    }
+
+    // Fallback to platform-specific extraction if mpv fails
     if (Platform.isAndroid) {
       return _extractAndroid(songs, cacheToDisk: false);
     } else {
       return _extractDesktop(songs, cacheToDisk: false);
+    }
+  }
+
+  /// Extract artwork using mpv_audio_kit's native C-level tag reader.
+  /// Much faster than Dart-side parsing — works for all formats mpv supports.
+  static Future<List<Song>?> _extractViaMpv(List<Song> songs) async {
+    try {
+      final player = Player(); // bare constructor — no autoPlay
+      
+      final updatedSongs = <Song>[];
+      
+      for (final song in songs) {
+        try {
+          // Open file without playing to extract metadata
+          await player.open(Media(song.uri), play: false);
+          
+          // Wait for coverArt stream emission with timeout
+          final completer = Completer<CoverArt?>();
+          final subscription = player.stream.coverArt.listen((coverArt) {
+            if (!completer.isCompleted) {
+              completer.complete(coverArt);
+            }
+          });
+          
+          final coverArt = await completer.future.timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => null,
+          );
+          
+          // Cancel subscription to free resources
+          await subscription.cancel();
+          
+          if (coverArt != null && coverArt.bytes.isNotEmpty) {
+            updatedSongs.add(song.copyWith(artworkBytes: Uint8List.fromList(coverArt.bytes)));
+          } else {
+            updatedSongs.add(song);
+          }
+        } catch (e) {
+          debugPrint('ArtworkExtractor mpv: failed for song ${song.id}: $e');
+          updatedSongs.add(song);
+        }
+      }
+      
+      // Close player to release resources
+      await player.dispose();
+      
+      final populated = updatedSongs.where((s) => s.artworkBytes != null).length;
+      debugPrint('ArtworkExtractor (mpv): populated artwork for $populated/${updatedSongs.length} songs');
+      
+      return updatedSongs;
+    } catch (e) {
+      debugPrint('ArtworkExtractor mpv: extraction failed, falling back to platform-specific: $e');
+      return null; // Return null to trigger fallback
     }
   }
 
