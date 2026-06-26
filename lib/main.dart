@@ -1219,10 +1219,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             tracks = await widget.ytService.getRandomTracks(9);
           }
           if (tracks != null && tracks.isNotEmpty) {
-            // Option B: extract artwork in-memory only for shuffled songs
-            final extracted = await ArtworkExtractor.extractForSongsInMemory(tracks);
             setState(() {
-              _shuffledTopNine = extracted.take(9).toList();
+              _shuffledTopNine = tracks.take(9).toList();
               _showingMix = false;
               _mixGridSongs = null;
             });
@@ -1233,11 +1231,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         }
       }
 
-      // Local mode: shuffle from local library and extract artwork in-memory
+      // Local mode: shuffle from local library (artwork extraction deferred)
       final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
-      final extracted = await ArtworkExtractor.extractForSongsInMemory(shuffled);
       setState(() {
-        _shuffledTopNine = extracted.take(9).toList();
+        _shuffledTopNine = shuffled.take(9).toList();
         _showingMix = false;
         _mixGridSongs = null;
       });
