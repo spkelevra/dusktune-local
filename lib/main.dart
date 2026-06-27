@@ -1222,7 +1222,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             debugPrint('shuffleTopNine streaming: $withArtBefore/${tracks!.length} songs have artwork from cache');
             
             // Clear artwork from all songs BEFORE showing them to ensure fresh extraction
-            final clearedTracks = tracks!.take(9).map((s) => s.copyWith(artworkBytes: null)).toList();
+            final clearedTracks = tracks!.take(9).map((s) => s.copyWith(clearArtwork: true)).toList();
             
             debugPrint('shuffleTopNine streaming: cleared artwork, now ${clearedTracks.where((s) => s.artworkBytes != null).length} have artwork');
             
@@ -1265,7 +1265,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       }
       
       // Clear artwork from all songs BEFORE showing them to ensure fresh extraction
-      final clearedShuffled = shuffled.take(9).map((s) => s.copyWith(artworkBytes: null)).toList();
+      final clearedShuffled = shuffled.take(9).map((s) => s.copyWith(clearArtwork: true)).toList();
       
       final clearedWithArt = clearedShuffled.where((s) => s.artworkBytes != null).length;
       debugPrint('shuffleTopNine: cleared artwork, now $clearedWithArt/${clearedShuffled.length} have artwork (should be 0)');

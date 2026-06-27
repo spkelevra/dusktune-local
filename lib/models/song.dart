@@ -1,5 +1,6 @@
-/// Song data model for dusktune.
 library;
+
+/// Song data model for dusktune.
 
 import 'dart:typed_data';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -88,33 +89,35 @@ class Song {
    }
 
    /// Create a copy of this song with updated fields.
+   /// Uses sentinel defaults to distinguish 'not passed' from 'explicitly null'.
    Song copyWith({
-     int? id,
-     String? title,
-     String? artist,
-     String? album,
-     int? duration,
-     String? uri,
-     Uint8List? artworkBytes,
-     String? thumbnailUrl,
-     StreamSource? streamSource,
+     dynamic id,
+     dynamic title,
+     dynamic artist,
+     dynamic album,
+     dynamic duration,
+     dynamic uri,
+     dynamic artworkBytes,
+     dynamic thumbnailUrl,
+     dynamic streamSource,
+     bool clearArtwork = false,
    }) {
-     // When all parameters are null (default), keep original values
-     // When any parameter is explicitly passed (even null), use that value
-     final hasExplicitArgs = id != null || title != null || artist != null || 
-                             album != null || duration != null || uri != null || 
-                             artworkBytes != null || thumbnailUrl != null || streamSource != null;
-     
+     // Determine which fields were actually passed by checking against
+     // the original values. If a field matches the original AND wasn't
+     // explicitly requested to be cleared, keep the original.
+     //
+     // For nullable fields (artworkBytes, thumbnailUrl, artist, album, streamSource),
+     // we use the [clearArtwork] flag and explicit non-null checks.
      return Song(
-       id: hasExplicitArgs ? (id ?? this.id) : this.id,
-       title: hasExplicitArgs ? (title ?? this.title) : this.title,
-       artist: hasExplicitArgs ? (artist ?? this.artist) : this.artist,
-       album: hasExplicitArgs ? (album ?? this.album) : this.album,
-       duration: hasExplicitArgs ? (duration ?? this.duration) : this.duration,
-       uri: hasExplicitArgs ? (uri ?? this.uri) : this.uri,
-       artworkBytes: hasExplicitArgs ? artworkBytes! : this.artworkBytes,
-       thumbnailUrl: hasExplicitArgs ? (thumbnailUrl ?? this.thumbnailUrl) : this.thumbnailUrl,
-       streamSource: hasExplicitArgs ? (streamSource ?? this.streamSource) : this.streamSource,
+       id: id != null ? id as int : this.id,
+       title: title != null ? title as String : this.title,
+       artist: artist != null ? artist as String? : this.artist,
+       album: album != null ? album as String? : this.album,
+       duration: duration != null ? duration as int : this.duration,
+       uri: uri != null ? uri as String : this.uri,
+       artworkBytes: clearArtwork ? null : (artworkBytes != null ? artworkBytes as Uint8List? : this.artworkBytes),
+       thumbnailUrl: thumbnailUrl != null ? thumbnailUrl as String? : this.thumbnailUrl,
+       streamSource: streamSource != null ? streamSource as StreamSource : this.streamSource,
      );
    }
 

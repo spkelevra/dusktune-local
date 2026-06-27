@@ -71,7 +71,7 @@ class ArtworkExtractor {
     debugPrint('ArtworkExtractor: $withArt/${songs.length} songs already have artwork before extraction');
 
     // Clear artwork from all songs first to ensure fresh extraction only
-    final clearedSongs = songs.map((s) => s.copyWith(artworkBytes: null)).toList();
+    final clearedSongs = songs.map((s) => s.copyWith(clearArtwork: true)).toList();
     
     debugPrint('ArtworkExtractor: cleared artwork from ${clearedSongs.length} songs');
 
