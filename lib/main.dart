@@ -797,6 +797,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   bool _favIsSearching = false;
   Timer? _favSearchDebounce;
 
+  // Grid/home search state — works across all source modes (local, SC, YouTube)
+  String? _gridSearchQuery;
+  final TextEditingController _gridSearchController = TextEditingController();
+  final FocusNode _gridSearchFocusNode = FocusNode();
+  List<Song>? _homeGridSearchResults;
+  int _searchPage = 0;
+  OverlayEntry? _gridSearchOverlayEntry;
+
   @override
   void initState() {
     super.initState();
@@ -1010,6 +1018,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      _librarySearchFocusNode.dispose();
      _mixesSearchFocusNode.dispose();
      _favoritesSearchFocusNode.dispose();
+    // Remove search overlay if visible
+    _hideGridSearchOverlay();
+    _gridSearchController.dispose();
+    _gridSearchFocusNode.dispose();
     // Stop ALS service
     if (!_isDesktop) {
       try {
@@ -1207,6 +1219,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      Future<void> shuffleTopNine(BuildContext context) async {
       final rng = math.Random();
 
+      // If search is active, advance to next page of results instead of shuffling
+      if (_homeGridSearchResults != null && _homeGridSearchResults!.isNotEmpty) {
+        _advanceSearchPage();
+        return;
+      }
+
       // Streaming mode: fetch random tracks from the active service
       if (widget.sourceMode != 'local') {
         try {
@@ -1312,6 +1330,32 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           debugPrint('shuffleTopNine artwork extraction failed: $e');
         }
       });
+    }
+
+  /// Advance to next page of search results on swipe/shuffle.
+    void _advanceSearchPage() {
+      if (_homeGridSearchResults == null || _homeGridSearchResults!.isEmpty) return;
+      
+      final totalPages = (_homeGridSearchResults!.length + 8) ~/ 9;
+      setState(() {
+        _searchPage = (_searchPage + 1) % totalPages;
+        final start = _searchPage * 9;
+        final end = math.min(start + 9, _homeGridSearchResults!.length);
+        _shuffledTopNine = _homeGridSearchResults!.sublist(start, end);
+      });
+
+      // Extract artwork for local songs in background
+      if (widget.sourceMode == 'local' && _shuffledTopNine != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
+          try {
+            final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
+            if (mounted && extractedSongs != null) {
+              setState(() => _shuffledTopNine = extractedSongs);
+            }
+          } catch (_) {}
+        });
+      }
     }
 
   /// Reset top picks back to most-played ranking.
@@ -1800,7 +1844,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     final key = event.logicalKey;
 
     // Disable all hotkeys when a search field has focus so typing works normally.
-     if (_librarySearchFocusNode.hasFocus || _mixesSearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus)
+     if (_librarySearchFocusNode.hasFocus || _mixesSearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus || _gridSearchFocusNode.hasFocus)
        return;
 
     // Backtick (`) → shuffle grid
@@ -1970,6 +2014,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                  const VerticalDivider(color: Colors.white24, thickness: 1),
                  const SizedBox(width: 4),
                  _buildSourceModeSwitcher(),
+                 // Grid search toggle — all modes (local + streaming)
+                 const SizedBox(width: 8),
+                 _buildGridSearchToggle(),
               ],
               ),
               );
@@ -1994,6 +2041,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               // Reset grid state when switching modes
               setState(() {
                _shuffledTopNine = null;
+               _gridSearchQuery = null;
+               _homeGridSearchResults = null;
+               _searchPage = 0;
                _toppedNine = null;
                _showingMix = false;
                _mixGridSongs = null;
@@ -2001,6 +2051,167 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               }
               },
               );
+              }
+
+              /// Small toggle button — shows/hides the grid search overlay via OverlayEntry.
+              Widget _buildGridSearchToggle() {
+                final hasActiveSearch = _homeGridSearchResults != null && _homeGridSearchResults!.isNotEmpty;
+                return IconButton(
+                  icon: Icon(
+                    Icons.search,
+                    size: 20,
+                    color: (_gridSearchOverlayEntry != null || hasActiveSearch) ? Colors.white : Colors.white54,
+                  ),
+                  onPressed: () {
+                    if (_gridSearchOverlayEntry != null) {
+                      _hideGridSearchOverlay();
+                    } else {
+                      _showGridSearchOverlay();
+                    }
+                  },
+                );
+              }
+
+              /// Show the search overlay using OverlayEntry (renders above everything).
+              void _showGridSearchOverlay() {
+                // Pre-fill with current query so user sees context
+                if (_gridSearchQuery != null) {
+                  _gridSearchController.text = _gridSearchQuery!;
+                } else {
+                  _gridSearchController.clear();
+                }
+
+                final overlayEntry = OverlayEntry(
+                  builder: (context) => Positioned(
+                    top: 48, // Just below the header row
+                    right: 12,
+                    width: MediaQuery.of(context).size.width - 24, // Full width minus padding
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[900]!.withOpacity(0.97),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white12, width: 1),
+                        ),
+                        child: Row(
+                          children: [
+                            // Search field takes remaining space
+                            Expanded(
+                              child: TextField(
+                                controller: _gridSearchController,
+                                focusNode: _gridSearchFocusNode,
+                                style: const TextStyle(fontSize: 14, color: Colors.white),
+                                decoration: InputDecoration(
+                                  hintText: 'search...',
+                                  hintStyle: const TextStyle(color: Colors.white38),
+                                  prefixIcon: const Icon(Icons.search, size: 20, color: Colors.white54),
+                                  suffixIcon: null,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(color: Colors.white12, width: 1),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(color: Colors.white12, width: 1),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Colors.white38, width: 1.5),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                ),
+                                onSubmitted: (value) {
+                                  _performGridSearch(value.trim());
+                                },
+                              ),
+                            ),
+                            // Close button
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 18, color: Colors.white54),
+                              onPressed: _hideGridSearchOverlay,
+                              constraints: const BoxConstraints(),
+                              padding: EdgeInsets.zero,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+
+                Overlay.of(context).insert(overlayEntry);
+                setState(() => _gridSearchOverlayEntry = overlayEntry);
+                WidgetsBinding.instance.addPostFrameCallback((_) =>
+                    _gridSearchFocusNode.requestFocus());
+              }
+
+              /// Hide the search overlay.
+              void _hideGridSearchOverlay() {
+                if (_gridSearchOverlayEntry != null) {
+                  _gridSearchOverlayEntry!.remove();
+                  setState(() => _gridSearchOverlayEntry = null);
+                  _gridSearchFocusNode.unfocus();
+                }
+              }
+
+
+
+
+              /// Execute search across local library or streaming source.
+              Future<void> _performGridSearch(String query) async {
+                if (query.isEmpty) return;
+                
+                _hideGridSearchOverlay();
+                setState(() {
+                  _gridSearchQuery = query;
+                  _searchPage = 0;
+                });
+
+                List<Song>? results;
+                try {
+                  if (widget.sourceMode == 'local') {
+                    // Search local library by title and artist
+                    final lowerQuery = query.toLowerCase();
+                    results = widget.allSongs.where((s) =>
+                      s.title.toLowerCase().contains(lowerQuery) ||
+                      (s.artist != null && s.artist!.toLowerCase().contains(lowerQuery))
+                    ).toList()..shuffle(math.Random());
+                  } else if (widget.sourceMode == 'soundcloud') {
+                    results = await widget.scService.search(query, limit: 100);
+                  } else if (widget.sourceMode == 'youtube') {
+                    results = await widget.ytService.search(query, limit: 100);
+                  }
+                } catch (e) {
+                  debugPrint('Grid search error: $e');
+                }
+
+                if (mounted && results != null && results.isNotEmpty) {
+                  setState(() {
+                    _homeGridSearchResults = results;
+                    _shuffledTopNine = results!.take(9).toList();
+                  });
+                  // Extract artwork for local songs in background
+                  if (widget.sourceMode == 'local') {
+                    WidgetsBinding.instance.addPostFrameCallback((_) async {
+                      if (!mounted) return;
+                      try {
+                        final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
+                        if (mounted && extractedSongs != null) {
+                          setState(() => _shuffledTopNine = extractedSongs);
+                        }
+                      } catch (_) {}
+                    });
+                  }
+                } else if (mounted) {
+                  // No results — clear search state
+                  setState(() {
+                    _homeGridSearchResults = null;
+                    _gridSearchQuery = null;
+                  });
+                }
               }
 
               Widget _tabIcon(IconData icon, int index) {
