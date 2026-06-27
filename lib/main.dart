@@ -1224,6 +1224,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               _showingMix = false;
               _mixGridSongs = null;
             });
+            // Extract artwork in background for streaming tracks
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!mounted) return;
+              try {
+                await ArtworkExtractor.extractForSongsInMemory(tracks!);
+                if (mounted) setState(() {});
+              } catch (e) {
+                debugPrint('shuffleTopNine streaming artwork extraction failed: $e');
+              }
+            });
             return;
           }
         } catch (e) {
@@ -1231,12 +1241,22 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         }
       }
 
-      // Local mode: shuffle from local library (artwork extraction deferred)
+      // Local mode: shuffle from local library — tracks appear immediately, artwork loads async
       final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
       setState(() {
         _shuffledTopNine = shuffled.take(9).toList();
         _showingMix = false;
         _mixGridSongs = null;
+      });
+      // Extract artwork in background — doesn't block UI
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        try {
+          await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
+          if (mounted) setState(() {}); // Rebuild to show artwork
+        } catch (e) {
+          debugPrint('shuffleTopNine artwork extraction failed: $e');
+        }
       });
     }
 
