@@ -1414,6 +1414,23 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         }
       });
     }
+    
+    // After loading pinned grid, extract artwork for local songs (no disk cache)
+    if (_showAlbumArt && mounted) {
+      final pinnedSongs = List<Song>.from(_pinnedGrid.values);
+      await ArtworkExtractor.extractForSongsInMemory(pinnedSongs);
+      
+      // Update the pinned grid with extracted artwork - preserve tile indices
+      if (mounted) {
+        setState(() {
+          int idx = 0;
+          for (final key in _pinnedGrid.keys.toList()) {
+            _pinnedGrid[key] = pinnedSongs[idx];
+            idx++;
+          }
+        });
+      }
+    }
   }
 
   /// Save pinned grid to persistent storage.
