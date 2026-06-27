@@ -82,14 +82,20 @@ class Song {
     String? uri,
     Uint8List? artworkBytes,
   }) {
+    // When all parameters are null (default), keep original values
+    // When any parameter is explicitly passed (even null), use that value
+    final hasExplicitArgs = id != null || title != null || artist != null || 
+                            album != null || duration != null || uri != null || 
+                            artworkBytes != null;
+
     return Song(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      artist: artist ?? this.artist,
-      album: album ?? this.album,
-      duration: duration ?? this.duration,
-      uri: uri ?? this.uri,
-      artworkBytes: artworkBytes ?? this.artworkBytes,
+      id: hasExplicitArgs ? (id ?? this.id) : this.id,
+      title: hasExplicitArgs ? (title ?? this.title) : this.title,
+      artist: hasExplicitArgs ? (artist ?? this.artist) : this.artist,
+      album: hasExplicitArgs ? (album ?? this.album) : this.album,
+      duration: hasExplicitArgs ? (duration ?? this.duration) : this.duration,
+      uri: hasExplicitArgs ? (uri ?? this.uri) : this.uri,
+      artworkBytes: hasExplicitArgs ? artworkBytes! : this.artworkBytes,
     );
   }
 

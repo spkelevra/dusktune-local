@@ -137,10 +137,8 @@ class _AppRootState extends State<AppRoot> {
   /// Toggle album art display setting. On mobile closes the app; on desktop shows restart prompt.
   Future<void> toggleAlbumArt(bool enabled) async {
     await AppSettings.saveShowAlbumArt(enabled);
-    if (enabled) {
-      // Set flag so next launch does a full artwork extraction
-      await AppSettings.saveRescanFlag(true);
-    }
+    
+    // No full rescan triggered on toggle — artwork extracts lazily
 
     if (_isDesktop) {
       // Desktop: SystemNavigator.pop() doesn't work — show restart prompt instead
@@ -1114,13 +1112,45 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     bool _topsFirstUse = true;
 
     /// Shuffle the top 9 to random songs — does NOT start playback.
-  void shuffleTopNine(BuildContext context) {
+     /// Tracks appear immediately, artwork loads in background asynchronously.
+  Future<void> shuffleTopNine(BuildContext context) async {
     final rng = math.Random();
+    
+    // Local mode: shuffle from local library — tracks appear immediately, artwork loads async
     final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
+    
+    debugPrint('shuffleTopNine: ${shuffled.length} songs before clearing artwork');
+    final withArtBefore = shuffled.where((s) => s.artworkBytes != null).length;
+    debugPrint('shuffleTopNine: $withArtBefore/${shuffled.length} songs have artwork from library cache');
+    
+    // Clear artwork from all songs BEFORE showing them to ensure fresh extraction
+    final clearedShuffled = shuffled.take(9).map((s) => s.copyWith(artworkBytes: null)).toList();
+    
+    debugPrint('shuffleTopNine: cleared artwork, now ${clearedShuffled.where((s) => s.artworkBytes != null).length}/${clearedShuffled.length} have artwork (should be 0)');
+    
     setState(() {
-      _shuffledTopNine = shuffled.take(9).toList();
+      _shuffledTopNine = clearedShuffled;
       _showingMix = false;
       _mixGridSongs = null;
+    });
+    
+    // Extract artwork in background — doesn't block UI
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      try {
+        final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
+        
+        if (mounted && extractedSongs != null) {
+          final withArtAfter = extractedSongs.where((s) => s.artworkBytes != null).length;
+          debugPrint('shuffleTopNine: extraction complete, $withArtAfter/${extractedSongs.length} songs have artwork');
+          
+          setState(() {
+            _shuffledTopNine = extractedSongs; // New list reference forces rebuild
+          });
+        }
+      } catch (e) {
+        debugPrint('shuffleTopNine artwork extraction failed: $e');
+      }
     });
   }
 
@@ -1197,6 +1227,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// Load pinned grid from persistent storage.
   Future<void> _loadPinnedGrid(List<Song> allSongs) async {
     final raw = await AppSettings.loadPinnedGrid();
+    
+    // Show placeholders immediately (no artwork yet)
     if (mounted) {
       setState(() {
         for (final entry in raw.entries) {
@@ -1211,6 +1243,40 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             ),
           );
           _pinnedGrid[entry.key] = song;
+        }
+      });
+    }
+    
+    // Extract artwork AFTER frame renders (like shuffle does)
+    if (_showAlbumArt && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        
+        final pinnedSongs = List<Song>.from(_pinnedGrid.values);
+        debugPrint('Pinned grid: extracting artwork for ${pinnedSongs.length} songs');
+        
+        final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(pinnedSongs);
+        
+        // Debug logging
+        final withArtAfter = extractedSongs.where((s) => s.artworkBytes != null).length;
+        debugPrint('Pinned grid extraction: $withArtAfter/${extractedSongs.length} songs have artwork');
+        
+        if (mounted && extractedSongs.isNotEmpty) {
+          setState(() {
+            // Build map of extracted songs by ID for matching
+            final extractedById = <int, Song>{};
+            for (final song in extractedSongs) {
+              extractedById[song.id] = song;
+            }
+            
+            // Update each pinned tile with its extracted artwork version
+            for (final key in _pinnedGrid.keys.toList()) {
+              final existingSong = _pinnedGrid[key]!;
+              if (extractedById.containsKey(existingSong.id)) {
+                _pinnedGrid[key] = extractedById[existingSong.id]!;
+              }
+            }
+          });
         }
       });
     }
@@ -4098,54 +4164,9 @@ class _SettingsContentState extends State<_SettingsContent> {
                     },
                   ),
 
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        await AppSettings.clearArtworkCache();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Artwork cache cleared')),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.delete_sweep, size: 18),
-                      label: const Text(
-                        'Clear Artwork Cache',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ),
 
-                  // Rescan album art button (only visible when enabled)
-                  FutureBuilder<bool>(
-                    future: AppSettings.loadShowAlbumArt(),
-                    builder: (context, snapshot) {
-                      final enabled = snapshot.data ?? false;
-                      if (!enabled) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                               final shell = context.findAncestorStateOfType<_AppRootState>();
-                               if (_isDesktop) {
-                                 if (context.mounted) {
-                                   ScaffoldMessenger.of(context).showSnackBar(
-                                     const SnackBar(content: Text('Rescanning artwork — please restart the app')),
-                                   );
-                                 }
-                               }
-                               shell?.rescanAlbumArt();
-                             },
-                          icon: const Icon(Icons.refresh, size: 18),
-                          label: const Text(
-                            'Rescan Album Art',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+
+
 
                   // Clear all data button
                   InkWell(
@@ -4421,46 +4442,9 @@ class _SettingsContentState extends State<_SettingsContent> {
                        ),
                       ),
 
-                      Padding(
-                       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-                       child: OutlinedButton.icon(
-                         onPressed: () async {
-                           await AppSettings.clearArtworkCache();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Artwork cache cleared')),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.delete_sweep, size: 18),
-                        label: const Text(
-                          'Clear Artwork Cache',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
 
-                    Padding(
-                      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                             final shell = context.findAncestorStateOfType<_AppRootState>();
-                             if (_isDesktop) {
-                               if (context.mounted) {
-                                 ScaffoldMessenger.of(context).showSnackBar(
-                                   const SnackBar(content: Text('Rescanning artwork — please restart the app')),
-                                 );
-                               }
-                             }
-                             shell?.rescanAlbumArt();
-                           },
-                        icon: const Icon(Icons.refresh, size: 18),
-                        label: const Text(
-                          'Rescan Album Art',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
+
+
 
                     const SizedBox(height: 32),
 
