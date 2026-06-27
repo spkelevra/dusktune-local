@@ -154,8 +154,7 @@ class _AppRootState extends State<AppRoot> {
   Future<void> toggleAlbumArt(bool enabled) async {
     await AppSettings.saveShowAlbumArt(enabled);
     
-    // Only trigger full rescan if explicitly requested via "Rescan Album Art" button,
-    // not when simply toggling the setting ON (which should use existing cache or lazy extraction)
+    // No full rescan triggered on toggle — artwork extracts lazily
 
     if (_isDesktop) {
       // Desktop: SystemNavigator.pop() doesn't work — show restart prompt instead
@@ -4424,54 +4423,9 @@ class _SettingsContentState extends State<_SettingsContent> {
                     },
                   ),
 
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        await AppSettings.clearArtworkCache();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Artwork cache cleared')),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.delete_sweep, size: 18),
-                      label: const Text(
-                        'Clear Artwork Cache',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ),
 
-                  // Rescan album art button (only visible when enabled)
-                  FutureBuilder<bool>(
-                    future: AppSettings.loadShowAlbumArt(),
-                    builder: (context, snapshot) {
-                      final enabled = snapshot.data ?? false;
-                      if (!enabled) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                               final shell = context.findAncestorStateOfType<_AppRootState>();
-                               if (_isDesktop) {
-                                 if (context.mounted) {
-                                   ScaffoldMessenger.of(context).showSnackBar(
-                                     const SnackBar(content: Text('Rescanning artwork — please restart the app')),
-                                   );
-                                 }
-                               }
-                               shell?.rescanAlbumArt();
-                             },
-                          icon: const Icon(Icons.refresh, size: 18),
-                          label: const Text(
-                            'Rescan Album Art',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+
+
 
                   // Clear all data button
                   InkWell(
@@ -4747,46 +4701,9 @@ class _SettingsContentState extends State<_SettingsContent> {
                        ),
                       ),
 
-                      Padding(
-                       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-                       child: OutlinedButton.icon(
-                         onPressed: () async {
-                           await AppSettings.clearArtworkCache();
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Artwork cache cleared')),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.delete_sweep, size: 18),
-                        label: const Text(
-                          'Clear Artwork Cache',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
 
-                    Padding(
-                      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                             final shell = context.findAncestorStateOfType<_AppRootState>();
-                             if (_isDesktop) {
-                               if (context.mounted) {
-                                 ScaffoldMessenger.of(context).showSnackBar(
-                                   const SnackBar(content: Text('Rescanning artwork — please restart the app')),
-                                 );
-                               }
-                             }
-                             shell?.rescanAlbumArt();
-                           },
-                        icon: const Icon(Icons.refresh, size: 18),
-                        label: const Text(
-                          'Rescan Album Art',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
+
+
 
                     const SizedBox(height: 32),
 
