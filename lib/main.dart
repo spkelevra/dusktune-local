@@ -153,10 +153,9 @@ class _AppRootState extends State<AppRoot> {
   /// Toggle album art display setting. On mobile closes the app; on desktop shows restart prompt.
   Future<void> toggleAlbumArt(bool enabled) async {
     await AppSettings.saveShowAlbumArt(enabled);
-    if (enabled) {
-      // Set flag so next launch does a full artwork extraction
-      await AppSettings.saveRescanFlag(true);
-    }
+    
+    // Only trigger full rescan if explicitly requested via "Rescan Album Art" button,
+    // not when simply toggling the setting ON (which should use existing cache or lazy extraction)
 
     if (_isDesktop) {
       // Desktop: SystemNavigator.pop() doesn't work — show restart prompt instead
@@ -1219,8 +1218,17 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             tracks = await widget.ytService.getRandomTracks(9);
           }
           if (tracks != null && tracks.isNotEmpty) {
+            debugPrint('shuffleTopNine streaming: ${tracks!.length} songs before clearing artwork');
+            final withArtBefore = tracks!.where((s) => s.artworkBytes != null).length;
+            debugPrint('shuffleTopNine streaming: $withArtBefore/${tracks!.length} songs have artwork from cache');
+            
+            // Clear artwork from all songs BEFORE showing them to ensure fresh extraction
+            final clearedTracks = tracks!.take(9).map((s) => s.copyWith(artworkBytes: null)).toList();
+            
+            debugPrint('shuffleTopNine streaming: cleared artwork, now ${clearedTracks.where((s) => s.artworkBytes != null).length} have artwork');
+            
             setState(() {
-              _shuffledTopNine = tracks!.take(9).toList();
+              _shuffledTopNine = clearedTracks;
               _showingMix = false;
               _mixGridSongs = null;
             });
@@ -1228,8 +1236,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             WidgetsBinding.instance.addPostFrameCallback((_) async {
               if (!mounted) return;
               try {
-                await ArtworkExtractor.extractForSongsInMemory(tracks!);
-                if (mounted) setState(() {});
+                final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
+                if (mounted && extractedSongs != null) {
+                  setState(() {
+                    _shuffledTopNine = extractedSongs; // New list reference forces rebuild
+                  });
+                }
               } catch (e) {
                 debugPrint('shuffleTopNine streaming artwork extraction failed: $e');
               }
@@ -1243,8 +1255,31 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
       // Local mode: shuffle from local library — tracks appear immediately, artwork loads async
       final shuffled = List<Song>.from(widget.allSongs)..shuffle(rng);
+      
+      debugPrint('shuffleTopNine: ${shuffled.length} songs before clearing artwork');
+      final withArtBefore = shuffled.where((s) => s.artworkBytes != null).length;
+      debugPrint('shuffleTopNine: $withArtBefore/${shuffled.length} songs have artwork from library cache');
+      
+      // Log first song's artwork size if it exists
+      if (shuffled.isNotEmpty && shuffled[0].artworkBytes != null) {
+        debugPrint('shuffleTopNine: first song artwork size=${shuffled[0].artworkBytes!.length} bytes, id=${shuffled[0].id}');
+      }
+      
+      // Clear artwork from all songs BEFORE showing them to ensure fresh extraction
+      final clearedShuffled = shuffled.take(9).map((s) => s.copyWith(artworkBytes: null)).toList();
+      
+      final clearedWithArt = clearedShuffled.where((s) => s.artworkBytes != null).length;
+      debugPrint('shuffleTopNine: cleared artwork, now $clearedWithArt/${clearedShuffled.length} have artwork (should be 0)');
+      
+      // Verify clearing worked by checking first song
+      if (clearedShuffled.isNotEmpty && clearedShuffled[0].artworkBytes != null) {
+        debugPrint('shuffleTopNine: ERROR - first song still has artwork after clearing! size=${clearedShuffled[0].artworkBytes!.length}');
+      } else if (clearedShuffled.isNotEmpty) {
+        debugPrint('shuffleTopNine: OK - first song artwork cleared successfully');
+      }
+      
       setState(() {
-        _shuffledTopNine = shuffled.take(9).toList();
+        _shuffledTopNine = clearedShuffled;
         _showingMix = false;
         _mixGridSongs = null;
       });
@@ -1252,8 +1287,28 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
         try {
-          await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
-          if (mounted) setState(() {}); // Rebuild to show artwork
+          final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
+          
+          if (mounted && extractedSongs != null) {
+            final withArtAfter = extractedSongs.where((s) => s.artworkBytes != null).length;
+            debugPrint('shuffleTopNine: extraction complete, $withArtAfter/${extractedSongs.length} songs have artwork');
+            
+            // Log first song's artwork size after extraction
+            if (extractedSongs.isNotEmpty && extractedSongs[0].artworkBytes != null) {
+              debugPrint('shuffleTopNine: first song artwork size=${extractedSongs[0].artworkBytes!.length} bytes, id=${extractedSongs[0].id}');
+              
+              // Compare with original to see if it's fresh extraction
+              final originalSong = shuffled.first;
+              if (originalSong.artworkBytes != null && extractedSongs[0].artworkBytes != null) {
+                final sameSize = originalSong.artworkBytes!.length == extractedSongs[0].artworkBytes!.length;
+                debugPrint('shuffleTopNine: artwork size matches original? $sameSize (${originalSong.artworkBytes!.length} vs ${extractedSongs[0].artworkBytes!.length})');
+              }
+            }
+            
+            setState(() {
+              _shuffledTopNine = extractedSongs; // New list reference forces rebuild
+            });
+          }
         } catch (e) {
           debugPrint('shuffleTopNine artwork extraction failed: $e');
         }
