@@ -1388,6 +1388,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// Load pinned grid from persistent storage.
   Future<void> _loadPinnedGrid(List<Song> allSongs) async {
     final raw = await AppSettings.loadPinnedGrid();
+    
+    // Show placeholders immediately (no artwork yet)
     if (mounted) {
       setState(() {
         for (final entry in raw.entries) {
@@ -1415,21 +1417,51 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       });
     }
     
-    // After loading pinned grid, extract artwork for local songs (no disk cache)
+    // Extract artwork AFTER frame renders (like shuffle does)
     if (_showAlbumArt && mounted) {
-      final pinnedSongs = List<Song>.from(_pinnedGrid.values);
-      await ArtworkExtractor.extractForSongsInMemory(pinnedSongs);
-      
-      // Update the pinned grid with extracted artwork - preserve tile indices
-      if (mounted) {
-        setState(() {
-          int idx = 0;
-          for (final key in _pinnedGrid.keys.toList()) {
-            _pinnedGrid[key] = pinnedSongs[idx];
-            idx++;
-          }
-        });
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        
+        final pinnedSongs = List<Song>.from(_pinnedGrid.values);
+        debugPrint('Pinned grid: extracting artwork for ${pinnedSongs.length} songs');
+        
+        final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(pinnedSongs);
+        
+        // Debug logging
+        final withArtAfter = extractedSongs.where((s) => s.artworkBytes != null).length;
+        debugPrint('Pinned grid extraction: $withArtAfter/${extractedSongs.length} songs have artwork');
+        
+        if (mounted && extractedSongs.isNotEmpty) {
+          setState(() {
+            // Build map of extracted songs by ID for matching
+            final extractedById = <int, Song>{};
+            for (final song in extractedSongs) {
+              extractedById[song.id] = song;
+            }
+            
+            // Create NEW map reference to force rebuild
+            final newGrid = Map<int, Song>.from(_pinnedGrid);
+            int updatedCount = 0;
+            
+            for (final key in _pinnedGrid.keys.toList()) {
+              final currentSong = _pinnedGrid[key];
+              if (currentSong != null && extractedById.containsKey(currentSong.id)) {
+                final extracted = extractedById[currentSong.id]!;
+                if (extracted.artworkBytes != null) {
+                  newGrid[key] = extracted;
+                  updatedCount++;
+                }
+              }
+            }
+            
+            debugPrint('Pinned grid: updating $updatedCount entries with artwork');
+            
+            // Replace the map reference to trigger rebuild
+            _pinnedGrid.clear();
+            _pinnedGrid.addAll(newGrid);
+          });
+        }
+      });
     }
   }
 
