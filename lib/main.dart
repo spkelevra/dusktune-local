@@ -1438,8 +1438,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               extractedById[song.id] = song;
             }
             
-            // Create NEW map reference to force rebuild - ASSIGN instead of modify
-            _pinnedGrid = Map<int, Song>.from(_pinnedGrid);
+            // Create NEW map reference to force rebuild
+            final newGrid = Map<int, Song>.from(_pinnedGrid);
             int updatedCount = 0;
             
             for (final key in _pinnedGrid.keys.toList()) {
@@ -1447,11 +1447,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               if (currentSong != null && extractedById.containsKey(currentSong.id)) {
                 final extracted = extractedById[currentSong.id]!;
                 if (extracted.artworkBytes != null) {
-                  _pinnedGrid[key] = extracted;
+                  newGrid[key] = extracted;
                   updatedCount++;
                 }
               }
             }
+            
+            // Replace contents to trigger rebuild
+            _pinnedGrid.clear();
+            _pinnedGrid.addAll(newGrid);
             
             debugPrint('Pinned grid: updated $updatedCount entries with artwork');
           });
