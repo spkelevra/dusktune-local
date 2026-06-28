@@ -716,6 +716,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   bool _recentSongsCollapsed = false;
   // Active section on home page: null = recent, 'library'/'mixes'/'favorites'
   String? _activeHomeSection;
+  bool _showHomeSearch = false;
   String _appName = 'dusktune';
   Song? _currentSong;
   bool _isPlaying = false;
@@ -2435,17 +2436,20 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                setState(() => _recentSongsCollapsed = !_recentSongsCollapsed);
                              },
                            ),
-                         // "recent" text becomes a button — tap opens Library/Mixes/Favorites popup menu
+                         // Section name button — tap opens Library/Mixes/Favorites popup menu
                           PopupMenuButton<String>(
-                            onSelected: (selected) => setState(() => _activeHomeSection = selected),
+                            onSelected: (selected) => setState(() { _activeHomeSection = selected; }),
                             itemBuilder: (_) => const [
                               PopupMenuItem(value: 'recent', child: Row(children: [Icon(Icons.history, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Recent Songs')])),
                               PopupMenuItem(value: 'library', child: Row(children: [Icon(Icons.queue_music, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Library')])),
                               PopupMenuItem(value: 'mixes', child: Row(children: [Icon(PhosphorIcons.vinylRecordFill, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Mixes')])),
                               PopupMenuItem(value: 'favorites', child: Row(children: [Icon(PhosphorIcons.fireFill, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Favorites')])),
                             ],
-                            child: const Text(
-                              'recent',
+                            child: Text(
+                              _activeHomeSection == null || _activeHomeSection == 'recent' ? 'recent' :
+                              _activeHomeSection == 'library' ? 'library' :
+                              _activeHomeSection == 'mixes' ? 'mixes' :
+                              _activeHomeSection == 'favorites' ? 'favorites' : 'recent',
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -2459,6 +2463,17 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // Search icon — opens search bar popup under header buttons
+                        IconButton(
+                          onPressed: () {
+                            setState(() => _showHomeSearch = !_showHomeSearch);
+                          },
+                          icon: Icon(
+                            Icons.search,
+                            size: 20,
+                            color: _showHomeSearch ? Colors.white : Colors.white70,
+                          ),
+                        ),
                         // "Viz" button — toggle spectrum analyzer on selected tile.
                         // Long-press/right-click opens style options menu.
                         GestureDetector(
@@ -2614,7 +2629,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           ),
                         ),
                         const SizedBox(width: 4),
-                        // Shuffle button — original behavior preserved
+                        // Shuffle button — icon only
                                                 TextButton.icon(
                                                   onPressed: () {
                                                     shuffleTopNine(context);
@@ -2624,13 +2639,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             size: 16,
                             color: Colors.white54,
                           ),
-                          label: const Text(
-                            'shuffle',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white54,
-                            ),
-                          ),
+                          label: const SizedBox.shrink(),
                           style: TextButton.styleFrom(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -2643,6 +2652,45 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       ],
                     ),
                   ],
+                ),
+              ),
+            ),
+
+            // Home search bar popup — appears under the header buttons when active
+            if (_showHomeSearch) SliverToBoxAdapter(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: TextField(
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Search songs...',
+                    hintStyle: const TextStyle(color: Colors.white38, fontSize: 14),
+                    prefixIcon: const Icon(Icons.search, size: 20, color: Colors.white54),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.close, size: 18, color: Colors.white54),
+                      onPressed: () {
+                        setState(() { _showHomeSearch = false; _searchResults = []; });
+                      },
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onChanged: (q) async {
+                    if (q.trim().isEmpty) {
+                      setState(() => _searchResults = []);
+                      return;
+                    }
+                    final lib = MusicLibrary();
+                    await lib.init();
+                    final results = await lib.search(q);
+                    if (mounted) setState(() => _searchResults = results);
+                  },
                 ),
               ),
             ),
