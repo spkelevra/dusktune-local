@@ -2426,15 +2426,29 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    IconButton(
-                      icon: Icon(
-                        _recentSongsCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
-                        color: Colors.white70,
-                        size: 24,
-                      ),
-                      onPressed: () {
-                        setState(() => _recentSongsCollapsed = !_recentSongsCollapsed);
-                      },
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            _recentSongsCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+                            color: Colors.white70,
+                            size: 24,
+                          ),
+                          onPressed: () {
+                            setState(() => _recentSongsCollapsed = !_recentSongsCollapsed);
+                          },
+                        ),
+                        const Text(
+                          'recent',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white70,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
                     ),
                     Row(
                       mainAxisSize: MainAxisSize.min,
