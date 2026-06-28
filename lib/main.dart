@@ -1966,7 +1966,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     final key = event.logicalKey;
 
     // Disable all hotkeys when a search field has focus so typing works normally.
-     if (_librarySearchFocusNode.hasFocus || _mixesSearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus || _gridSearchFocusNode.hasFocus)
+     if (_librarySearchFocusNode.hasFocus || _mixesSearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus || _gridSearchFocusNode.hasFocus || _homeSearchFocusNode.hasFocus)
        return;
 
     // Backtick (`) → shuffle grid
@@ -2700,7 +2700,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   ),
                   onChanged: (q) {
-                    if (q.trim().isEmpty) {
+                    if (_homeSearchController.text.trim().isEmpty && q.isEmpty) {
                       setState(() { _showHomeSearch = false; _searchQuery = null; });
                       return;
                     }
