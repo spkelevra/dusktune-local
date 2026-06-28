@@ -1335,13 +1335,26 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   /// Advance to next page of search results on swipe/shuffle.
     void _advanceSearchPage() {
       if (_homeGridSearchResults == null || _homeGridSearchResults!.isEmpty) return;
-      
+
       final totalPages = (_homeGridSearchResults!.length + 8) ~/ 9;
+      final nextPage = (_searchPage + 1) % totalPages;
+      final nextStart = nextPage * 9;
+
+      // If approaching end of results, fetch more in background (infinite scroll)
+      if (nextPage >= totalPages - 2 || _homeGridSearchResults!.length <= 18) {
+        _fetchMoreSearchResults();
+      }
+
       setState(() {
-        _searchPage = (_searchPage + 1) % totalPages;
-        final start = _searchPage * 9;
-        final end = math.min(start + 9, _homeGridSearchResults!.length);
-        _shuffledTopNine = _homeGridSearchResults!.sublist(start, end);
+        _searchPage = nextPage;
+        final end = math.min(nextStart + 9, _homeGridSearchResults!.length);
+        if (nextStart < _homeGridSearchResults!.length) {
+          _shuffledTopNine = _homeGridSearchResults!.sublist(nextStart, end);
+        } else {
+          // Wrap around to start while more results load
+          _searchPage = 0;
+          _shuffledTopNine = _homeGridSearchResults!.take(9).toList();
+        }
       });
 
       // Extract artwork for local songs in background
@@ -1358,16 +1371,41 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       }
     }
 
-  /// Reset top picks back to most-played ranking.
-    void resetTopPicks() {
+    /// Fetch more search results and append to existing list.
+    Future<void> _fetchMoreSearchResults() async {
+      if (_gridSearchQuery == null || _gridSearchQuery!.isEmpty) return;
+
+      try {
+        List<Song>? newResults;
+        if (widget.sourceMode == 'soundcloud') {
+          final fresh = await widget.scService.search(_gridSearchQuery!, limit: 100);
+          final existingIds = _homeGridSearchResults!.map((s) => s.id).toSet();
+          newResults = fresh.where((s) => !existingIds.contains(s.id)).toList();
+        } else if (widget.sourceMode == 'youtube') {
+          final fresh = await widget.ytService.search(_gridSearchQuery!, limit: 100);
+          final existingIds = _homeGridSearchResults!.map((s) => s.id).toSet();
+          newResults = fresh.where((s) => !existingIds.contains(s.id)).toList();
+        }
+
+        if (mounted && newResults != null && newResults.isNotEmpty && _homeGridSearchResults != null) {
           setState(() {
-            _shuffledTopNine = null;
-            _toppedNine = null;
-            _showingMix = false;
-            _mixGridSongs = null;
-            _topsPage = 0;
+            _homeGridSearchResults!.addAll(newResults!);
           });
         }
+      } catch (_) {}
+    }
+
+  /// Reset top picks back to most-played ranking.
+    /// Restore pinned grid by clearing shuffle, tops, and mix state.
+    void resetTopPicks() {
+      setState(() {
+        _shuffledTopNine = null;
+        _toppedNine = null;
+        _showingMix = false;
+        _mixGridSongs = null;
+        _topsPage = 0;
+      });
+    }
 
     /// Get a batch of N most-played songs, starting at offset = _topsPage * n.
     List<Song> _getTopsBatch(int n) {
@@ -1394,8 +1432,17 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       return result.take(n).toList();
     }
 
-    /// Cycle to the next page of most-played songs (batch of 9).
-        void showTops() {
+    /// Cycle to the next page of most-played songs (batch of 9) with album art extraction.
+        void showTops() async {
+      // Get the batch first, then extract artwork before showing it
+      final batchSongs = _getTopsBatch(9);
+      if (batchSongs.isEmpty) return;
+
+      try {
+        final clearedSongs = batchSongs.map((s) => s.copyWith(clearArtwork: true)).toList();
+        final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(clearedSongs);
+
+        if (mounted && extractedSongs != null) {
           setState(() {
             // First tap after launch: show page 0 (most played) without incrementing.
             if (_topsFirstUse) {
@@ -1404,27 +1451,84 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             } else {
               _topsPage = (_topsPage + 1) % ((widget.allSongs.length + 8) ~/ 9);
             }
-            // Store the topped batch — overrides pins, just like shuffle does.
-            _toppedNine = _getTopsBatch(9);
+            // Store the topped batch with artwork — overrides pins, just like shuffle does.
+            _toppedNine = extractedSongs;
             // Clear shuffle/mix so we go back to ranked tops display
             _shuffledTopNine = null;
             _showingMix = false;
             _mixGridSongs = null;
           });
+        } else {
+          // Fallback if extraction fails - still show the songs without art
+          setState(() {
+            if (_topsFirstUse) {
+              _topsFirstUse = false;
+              _topsPage = 0;
+            } else {
+              _topsPage = (_topsPage + 1) % ((widget.allSongs.length + 8) ~/ 9);
+            }
+            _toppedNine = clearedSongs;
+            _shuffledTopNine = null;
+            _showingMix = false;
+            _mixGridSongs = null;
+          });
         }
-
-      /// Reset tops back to the beginning (page 0) and show that batch.
-      void resetTops() {
+      } catch (_) {
+        // Fallback on error - just show the songs normally
         setState(() {
-          _topsPage = 0;
-          _topsFirstUse = true; // allow first-tap behavior again after reset
-          _toppedNine = _getTopsBatch(9);
-          // Clear shuffle/mix so we go back to ranked tops display
+          if (_topsFirstUse) {
+            _topsFirstUse = false;
+            _topsPage = 0;
+          } else {
+            _topsPage = (_topsPage + 1) % ((widget.allSongs.length + 8) ~/ 9);
+          }
+          _toppedNine = batchSongs;
           _shuffledTopNine = null;
           _showingMix = false;
           _mixGridSongs = null;
         });
       }
+    }
+
+      /// Reset tops back to the beginning (page 0) and show that batch with album art.
+      void resetTops() async {
+      final batchSongs = _getTopsBatch(9);
+      if (batchSongs.isEmpty) return;
+
+      try {
+        final clearedSongs = batchSongs.map((s) => s.copyWith(clearArtwork: true)).toList();
+        final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(clearedSongs);
+
+        if (mounted && extractedSongs != null) {
+          setState(() {
+            _topsPage = 0;
+            _topsFirstUse = true; // allow first-tap behavior again after reset
+            _toppedNine = extractedSongs;
+            _shuffledTopNine = null;
+            _showingMix = false;
+            _mixGridSongs = null;
+          });
+        } else {
+          setState(() {
+            _topsPage = 0;
+            _topsFirstUse = true;
+            _toppedNine = clearedSongs;
+            _shuffledTopNine = null;
+            _showingMix = false;
+            _mixGridSongs = null;
+          });
+        }
+      } catch (_) {
+        setState(() {
+          _topsPage = 0;
+          _topsFirstUse = true;
+          _toppedNine = batchSongs;
+          _shuffledTopNine = null;
+          _showingMix = false;
+          _mixGridSongs = null;
+        });
+      }
+    }
 
     // -- Pinned grid helpers --
 
@@ -2180,9 +2284,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       (s.artist != null && s.artist!.toLowerCase().contains(lowerQuery))
                     ).toList()..shuffle(math.Random());
                   } else if (widget.sourceMode == 'soundcloud') {
-                    results = await widget.scService.search(query, limit: 100);
+                    results = await widget.scService.search(query, limit: 300);
                   } else if (widget.sourceMode == 'youtube') {
-                    results = await widget.ytService.search(query, limit: 100);
+                    results = await widget.ytService.search(query, limit: 300);
                   }
                 } catch (e) {
                   debugPrint('Grid search error: $e');

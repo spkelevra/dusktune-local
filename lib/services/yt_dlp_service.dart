@@ -206,27 +206,33 @@ class YtDlpService {
         'classical crossover', 'funk', 'soul', 'rnb', 'pop instrumental',
         'dubstep', 'trance', 'techno', 'folk acoustic', 'jazz fusion',
       ];
-      final artists = [
-        'Flume', 'ODESZA', 'Tame Impala', 'Bonobo', 'Tycho',
-        'Khruangbin', 'FKJ', 'Jamie xx', 'Caribou', 'Four Tet',
-        'Disclosure', 'Rüfüs Du Sol', 'Peggy Gou', 'Nujabes', 'Umi',
-        'Emancipator', 'Kiasmos', 'Amon Tobin', 'Floating Points', 'Hudson Mohawke',
+      final moods = [
+        'chill', 'upbeat', 'dark', 'dreamy', 'energetic', 'relaxing',
+        'melancholic', 'groovy', 'atmospheric', 'minimal',
       ];
-      final suffixes = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
+      final formats = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
 
       final query;
       if (genre != null && genre.isNotEmpty) {
-        final suffix = suffixes[rng.nextInt(suffixes.length)];
-        query = '$genre $suffix';
+        final fmt = formats[rng.nextInt(formats.length)];
+        query = '$genre $fmt';
       } else {
-        // 60% genre-based, 40% artist-based for variety
-        if (rng.nextDouble() < 0.6) {
+        // Weighted pool: 40% genre+format, 30% mood-based, 20% genre+mood, 10% trending keywords
+        final roll = rng.nextDouble();
+        if (roll < 0.4) {
           final pickedGenre = genres[rng.nextInt(genres.length)];
-          final suffix = suffixes[rng.nextInt(suffixes.length)];
-          query = '$pickedGenre $suffix';
+          final fmt = formats[rng.nextInt(formats.length)];
+          query = '$pickedGenre $fmt';
+        } else if (roll < 0.7) {
+          final mood = moods[rng.nextInt(moods.length)];
+          query = '$mood music';
+        } else if (roll < 0.9) {
+          final pickedGenre = genres[rng.nextInt(genres.length)];
+          final mood = moods[rng.nextInt(moods.length)];
+          query = '$pickedGenre $mood';
         } else {
-          final pickedArtist = artists[rng.nextInt(artists.length)];
-          query = '$pickedArtist';
+          final trending = ['trending', 'viral', 'new music', 'discovery', 'underground'];
+          query = trending[rng.nextInt(trending.length)];
         }
       }
 
@@ -259,14 +265,38 @@ class YtDlpService {
         'classical crossover', 'funk', 'soul', 'rnb', 'pop instrumental',
         'dubstep', 'trance', 'techno', 'folk acoustic', 'jazz fusion',
       ];
+      final moods = [
+        'chill', 'upbeat', 'dark', 'dreamy', 'energetic', 'relaxing',
+        'melancholic', 'groovy', 'atmospheric', 'minimal',
+      ];
+      final formats = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
+
       final query;
       if (genre != null && genre.isNotEmpty) {
         query = '$genre music';
       } else {
-        final pickedGenre = genres[rng.nextInt(genres.length)];
-        final suffixes = ['mix', 'remix', 'cover', 'live session', 'original', 'beat', 'vibes'];
-        final suffix = suffixes[rng.nextInt(suffixes.length)];
-        query = '$pickedGenre $suffix';
+        // Weighted pool: 35% genre+format, 25% mood-based, 20% genre+mood, 10% trending, 10% random keywords
+        final roll = rng.nextDouble();
+        if (roll < 0.35) {
+          final pickedGenre = genres[rng.nextInt(genres.length)];
+          final fmt = formats[rng.nextInt(formats.length)];
+          query = '$pickedGenre $fmt';
+        } else if (roll < 0.6) {
+          final mood = moods[rng.nextInt(moods.length)];
+          query = '$mood music';
+        } else if (roll < 0.8) {
+          final pickedGenre = genres[rng.nextInt(genres.length)];
+          final mood = moods[rng.nextInt(moods.length)];
+          query = '$pickedGenre $mood';
+        } else if (roll < 0.9) {
+          final trending = ['trending', 'viral', 'new music', 'discovery', 'underground'];
+          query = trending[rng.nextInt(trending.length)];
+        } else {
+          // Random keyword combos for maximum variety
+          final keywords = ['instrumental', 'acoustic', 'piano', 'guitar', 'synth', 'bass', 'vocal chops', 'experimental'];
+          final pickedGenre = genres[rng.nextInt(genres.length)];
+          query = '${keywords[rng.nextInt(keywords.length)]} $pickedGenre';
+        }
       }
 
       debugPrint('YouTube shuffle query: "$query"');
