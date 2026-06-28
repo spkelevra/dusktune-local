@@ -2141,7 +2141,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               /// Dropdown/button to switch between local, SoundCloud, and YouTube sources.
               Widget _buildSourceModeSwitcher() {
               final modes = ['local', 'soundcloud', 'youtube'];
-              final labels = {'local': 'Local', 'soundcloud': 'SoundCloud', 'youtube': 'YouTube'};
+              final labels = {'local': 'local', 'soundcloud': 'soundcloud', 'youtube': 'youtube'};
               return DropdownButton<String>(
               value: widget.sourceMode,
               underline: const SizedBox.shrink(),
@@ -2289,7 +2289,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                  if (query.isEmpty) {
                    setState(() {
                      _homeGridSearchResults = null;
-                     _gridPressQuery = null;
+                     _gridSearchQuery = null;
                      _searchPage = 0;
                    });
                    resetTopPicks();
