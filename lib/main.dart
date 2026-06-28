@@ -2676,7 +2676,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.close, size: 18, color: Colors.white54),
                       onPressed: () {
-                        setState(() { _showHomeSearch = false; _searchResults = []; });
+                        setState(() { 
+                          _showHomeSearch = false; 
+                          _searchQuery = null;
+                        });
                       },
                     ),
                     border: InputBorder.none,
