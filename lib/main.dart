@@ -1034,6 +1034,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     if (!_isDesktop) {
       try {
         _ambientLightService.stop();
+      _homeSearchController.dispose();
+      _homeSearchFocusNode.dispose();
       _fftSub?.cancel();
       } catch (_) {}
     }
