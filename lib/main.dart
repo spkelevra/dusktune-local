@@ -717,6 +717,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   // Active section on home page: null = recent, 'library'/'mixes'/'favorites'
   String? _activeHomeSection;
   bool _showHomeSearch = false;
+  String? _searchQuery;
   String _appName = 'dusktune';
   Song? _currentSong;
   bool _isPlaying = false;
@@ -2681,40 +2682,43 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   ),
-                  onChanged: (q) async {
+                  onChanged: (q) {
                     if (q.trim().isEmpty) {
-                      setState(() => _searchResults = []);
+                      setState(() { _showHomeSearch = false; _searchQuery = null; });
                       return;
                     }
-                    final lib = MusicLibrary();
-                    await lib.init();
-                    final results = await lib.search(q);
-                    if (mounted) setState(() => _searchResults = results);
+                    setState(() => _searchQuery = q);
                   },
                 ),
               ),
             ),
 
             // Recent songs list (ordered by last played) — collapsed by default
-            // Section content — swap based on active section selection
+            // Section content — swap based on active section selection, filtered when searching
             if (_activeHomeSection == 'library') ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
-                  final song = widget.allSongs[index];
+                  final songs = _searchQuery != null ? widget.allSongs.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : widget.allSongs;
+                  if (index >= songs.length) return const SizedBox.shrink();
+                  final song = songs[index];
                   return _buildSongListItem(song);
-                }, childCount: widget.allSongs.length),
+                }, childCount: (_searchQuery != null ? widget.allSongs.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : widget.allSongs).length),
               ),
             ] else if (_activeHomeSection == 'mixes') ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
-                  final mix = _mixes[index];
+                  final mixes = _searchQuery != null ? _mixes.where((m) => m['title'].toString().toLowerCase().contains(_searchQuery!.toLowerCase())).toList() : _mixes;
+                  if (index >= mixes.length) return const SizedBox.shrink();
+                  final mix = mixes[index];
                   return _buildMixTile(mix);
-                }, childCount: _mixes.length),
+                }, childCount: (_searchQuery != null ? _mixes.where((m) => m['title'].toString().toLowerCase().contains(_searchQuery!.toLowerCase())).toList() : _mixes).length),
               ),
             ] else if (_activeHomeSection == 'favorites') ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
-                  final song = _favorites[index];
+                  final songs = _searchQuery != null ? _favorites.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : _favorites;
+                  if (index >= songs.length) return const SizedBox.shrink();
+                  final song = songs[index];
                   return GestureDetector(
                     onTap: () => playSong(song, queue: _favorites),
                     child: ListTile(
@@ -2728,16 +2732,20 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       subtitle: Text(songDisplayArtist(song), style: const TextStyle(color: Colors.white54, fontSize: 11)),
                     ),
                   );
-                }, childCount: _favorites.length),
+                }, childCount: (_searchQuery != null ? _favorites.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : _favorites).length),
               ),
             ] else if (!_recentSongsCollapsed) ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
-                  final recentSongs = getRecentSongs();
-                  if (index >= recentSongs.length) return const SizedBox.shrink();
-                  final song = recentSongs[index];
+                  final recentSongList = getRecentSongs();
+                  final songs = _searchQuery != null ? recentSongList.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : recentSongList;
+                  if (index >= songs.length) return const SizedBox.shrink();
+                  final song = songs[index];
                   return _buildSongListItem(song);
-                }, childCount: widget.allSongs.length),
+                }, childCount: (() {
+                  final recentSongList = getRecentSongs();
+                  return (_searchQuery != null ? recentSongList.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : recentSongList).length;
+                })()),
               ),
             ],
 
