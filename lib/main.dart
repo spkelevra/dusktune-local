@@ -714,6 +714,8 @@ class DuskTuneShell extends StatefulWidget {
 class _DuskTuneShellState extends State<DuskTuneShell> {
 
   bool _recentSongsCollapsed = false;
+  // Active section on home page: null = recent, 'library'/'mixes'/'favorites'
+  String? _activeHomeSection;
   String _appName = 'dusktune';
   Song? _currentSong;
   bool _isPlaying = false;
@@ -2114,15 +2116,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             ),
           ),
           const SizedBox(width: 8),
-          // Tab buttons (icons only)
-             _tabIcon(Icons.queue_music, 1),
-             const SizedBox(width: 4),
-             _tabIcon(PhosphorIcons.vinylRecordFill, 2),
-             const SizedBox(width: 4),
-             _tabIcon(PhosphorIcons.fireFill, 3),
-              // Settings tab
-                    const SizedBox(width: 4),
-                   _tabIcon(Icons.tune, 4),
+           // Tab buttons (icons only) — Library/Mix/Favorites moved to home dropdown; only Settings remains
+              const SizedBox(width: 4),
+            _tabIcon(Icons.tune, 4),
                // Source mode switcher (all platforms)
                  const SizedBox(width: 8),
                  const VerticalDivider(color: Colors.white24, thickness: 1),
@@ -2420,36 +2416,46 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             ),
 
             // Recent songs section header
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            _recentSongsCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
-                            color: Colors.white70,
-                            size: 24,
+             SliverToBoxAdapter(
+               child: Padding(
+                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                 child: Row(
+                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                   children: [
+                     Row(
+                       mainAxisSize: MainAxisSize.min,
+                       children: [
+                         IconButton(
+                           icon: Icon(
+                             _recentSongsCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+                             color: Colors.white70,
+                             size: 24,
+                           ),
+                             onPressed: () {
+                               setState(() => _recentSongsCollapsed = !_recentSongsCollapsed);
+                             },
+                           ),
+                         // "recent" text becomes a button — tap opens Library/Mixes/Favorites popup menu
+                          PopupMenuButton<String>(
+                            onSelected: (selected) => setState(() => _activeHomeSection = selected),
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: 'recent', child: Text('Recent Songs')),
+                              PopupMenuItem(value: 'library', child: Text('Library')),
+                              PopupMenuItem(value: 'mixes', child: Text('Mixes')),
+                              PopupMenuItem(value: 'favorites', child: Text('Favorites')),
+                            ],
+                            child: const Text(
+                              'recent',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white70,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
                           ),
-                          onPressed: () {
-                            setState(() => _recentSongsCollapsed = !_recentSongsCollapsed);
-                          },
-                        ),
-                        const Text(
-                          'recent',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white70,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -2642,7 +2648,41 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             ),
 
             // Recent songs list (ordered by last played) — collapsed by default
-            if (!_recentSongsCollapsed) ...[
+            // Section content — swap based on active section selection
+            if (_activeHomeSection == 'library') ...[
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final song = widget.allSongs[index];
+                  return _buildSongListItem(song);
+                }, childCount: widget.allSongs.length),
+              ),
+            ] else if (_activeHomeSection == 'mixes') ...[
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final mix = _mixes[index];
+                  return _buildMixTile(mix);
+                }, childCount: _mixes.length),
+              ),
+            ] else if (_activeHomeSection == 'favorites') ...[
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final song = _favorites[index];
+                  return GestureDetector(
+                    onTap: () => playSong(song, queue: _favorites),
+                    child: ListTile(
+                      leading: Container(
+                        width: 40, height: 40, decoration: BoxDecoration(
+                          color: Colors.grey[850], borderRadius: BorderRadius.circular(4)),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.favorite_border, size: 18, color: Colors.white24),
+                      ),
+                      title: Text(song.title, style: const TextStyle(color: Colors.white, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(songDisplayArtist(song), style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                    ),
+                  );
+                }, childCount: _favorites.length),
+              ),
+            ] else if (!_recentSongsCollapsed) ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final recentSongs = getRecentSongs();
