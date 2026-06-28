@@ -2264,12 +2264,19 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     _gridSearchFocusNode.requestFocus());
               }
 
-              /// Hide the search overlay.
+              /// Hide the search overlay and reset to default grid view.
               void _hideGridSearchOverlay() {
                 if (_gridSearchOverlayEntry != null) {
                   _gridSearchOverlayEntry!.remove();
                   setState(() => _gridSearchOverlayEntry = null);
                   _gridSearchFocusNode.unfocus();
+                  // Clear search results and restore default grid view
+                  setState(() {
+                    _homeGridSearchResults = null;
+                    _gridSearchQuery = null;
+                    _searchPage = 0;
+                  });
+                  resetTopPicks();
                 }
               }
 
@@ -2278,7 +2285,16 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
               /// Execute search across local library or streaming source.
               Future<void> _performGridSearch(String query) async {
-                if (query.isEmpty) return;
+                // Empty query: reset to default grid view instead of searching
+                if (query.isEmpty) {
+                  setState(() {
+                    _homeGridSearchResults = null;
+                    _gridSearchQuery = null;
+                    _searchPage = 0;
+                  });
+                  resetTopPicks();
+                  return;
+                }
                 
                 _hideGridSearchOverlay();
                 setState(() {
