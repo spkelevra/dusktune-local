@@ -2285,16 +2285,17 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
               /// Execute search across local library or streaming source.
               Future<void> _performGridSearch(String query) async {
-                // Empty query: reset to default grid view instead of searching
-                if (query.isEmpty) {
-                  setState(() {
-                    _homeGridSearchResults = null;
-                    _gridSearchQuery = null;
-                    _searchPage = 0;
-                  });
-                  resetTopPicks();
-                  return;
-                }
+                 // Empty query: reset to default grid view and close overlay
+                 if (query.isEmpty) {
+                   setState(() {
+                     _homeGridSearchResults = null;
+                     _gridPressQuery = null;
+                     _searchPage = 0;
+                   });
+                   resetTopPicks();
+                   _hideGridSearchOverlay();
+                   return;
+                 }
                 
                 _hideGridSearchOverlay();
                 setState(() {
