@@ -718,6 +718,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   String? _activeHomeSection;
   bool _showHomeSearch = false;
   String? _searchQuery;
+  final TextEditingController _homeSearchController = TextEditingController();
+  final FocusNode _homeSearchFocusNode = FocusNode();
   String _appName = 'dusktune';
   Song? _currentSong;
   bool _isPlaying = false;
@@ -2467,7 +2469,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         // Search icon — opens search bar popup under header buttons
                         IconButton(
                           onPressed: () {
-                            setState(() => _showHomeSearch = !_showHomeSearch);
+                            setState(() { 
+                              _showHomeSearch = !_showHomeSearch;
+                              if (_showHomeSearch) {
+                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                  _homeSearchFocusNode.requestFocus();
+                                });
+                              }
+                            });
                           },
                           icon: Icon(
                             Icons.search,
@@ -2667,7 +2676,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   border: Border.all(color: Colors.white24),
                 ),
                 child: TextField(
-                  autofocus: true,
+                  controller: _homeSearchController,
+                  focusNode: _homeSearchFocusNode,
                   style: const TextStyle(color: Colors.white, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'Search songs...',
@@ -2679,6 +2689,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                         setState(() { 
                           _showHomeSearch = false; 
                           _searchQuery = null;
+                          _homeSearchController.clear();
+                          _homeSearchFocusNode.unfocus();
                         });
                       },
                     ),
