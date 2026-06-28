@@ -712,6 +712,8 @@ class DuskTuneShell extends StatefulWidget {
 }
 
 class _DuskTuneShellState extends State<DuskTuneShell> {
+
+  bool _recentSongsCollapsed = false;
   String _appName = 'dusktune';
   Song? _currentSong;
   bool _isPlaying = false;
@@ -1825,6 +1827,14 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     return _recentlyPlayed.toList();
   }
 
+  /// Toggle recent songs collapsed state and persist to storage.
+  Future<void> _toggleRecentSongs() async {
+    final newValue = !_recentSongsCollapsed;
+    setState(() => _recentSongsCollapsed = newValue);
+    // Persist via AppSettings (which wraps persistent_storage)
+    await AppSettings.saveRecentSongsCollapsed(newValue);
+  }
+
   /// Toggle Shuffle All — plays a random song and enables shuffle mode.
   void toggleShuffleAll(BuildContext context) {
     setState(() {
@@ -2416,14 +2426,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'recent songs',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                    IconButton(
+                      icon: Icon(
+                        _recentSongsCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
                         color: Colors.white70,
-                        letterSpacing: 0.5,
+                        size: 24,
                       ),
+                      onPressed: () {
+                        setState(() => _recentSongsCollapsed = !_recentSongsCollapsed);
+                      },
                     ),
                     Row(
                       mainAxisSize: MainAxisSize.min,
@@ -2616,15 +2627,17 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               ),
             ),
 
-            // Recent songs list (ordered by last played)
-            SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final recentSongs = getRecentSongs();
-                if (index >= recentSongs.length) return const SizedBox.shrink();
-                final song = recentSongs[index];
-                return _buildSongListItem(song);
-              }, childCount: widget.allSongs.length),
-            ),
+            // Recent songs list (ordered by last played) — collapsed by default
+            if (!_recentSongsCollapsed) ...[
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
+                  final recentSongs = getRecentSongs();
+                  if (index >= recentSongs.length) return const SizedBox.shrink();
+                  final song = recentSongs[index];
+                  return _buildSongListItem(song);
+                }, childCount: widget.allSongs.length),
+              ),
+            ],
 
             // Bottom padding for player
             const SliverToBoxAdapter(child: SizedBox(height: 80)),

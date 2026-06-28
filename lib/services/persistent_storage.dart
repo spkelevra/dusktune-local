@@ -55,6 +55,7 @@ class PersistentStorage {
   static const String _kVizStyle = 'viz_style.json';
   static const String _kVizIntensity = 'viz_intensity.json';
   static const String _kVizSmoothing = 'viz_smoothing.json';
+  static const String _kRecentSongsCollapsed = 'recent_songs_collapsed.json';
 
   /// Subdirectory for cached album artwork thumbnails.
   static const String _artworkSubDir = 'artwork';
@@ -531,6 +532,27 @@ class PersistentStorage {
       return;
     }
     await _writeJson(_kVizSmoothing, smoothing.clamp(0.0, 1.0));
+  }
+
+  // -- Recent songs collapsed state (bool) --
+
+  static Future<bool> loadRecentSongsCollapsed() async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('recent_songs_collapsed') ?? false;
+    }
+    final data = await _readJsonAsync(_kRecentSongsCollapsed);
+    if (data is bool) return data;
+    return false; // Default: expanded
+  }
+
+  static Future<void> saveRecentSongsCollapsed(bool collapsed) async {
+    if (!Platform.isAndroid) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('recent_songs_collapsed', collapsed);
+      return;
+    }
+    await _writeJson(_kRecentSongsCollapsed, collapsed);
   }
 
   // -- Clear all persistent data --
