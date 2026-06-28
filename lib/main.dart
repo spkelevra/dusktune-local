@@ -4312,14 +4312,25 @@ class _SearchBarDelegate extends SliverPersistentHeaderDelegate {
                 ? IconButton(
                     icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white54),
                     onPressed: () {
+                      final wasSearchActive = controller.text.trim().isNotEmpty;
                       controller.clear();
-                      onChanged('');
+                      focusNode.unfocus();
+                      if (wasSearchActive) {
+                        onChanged('');
+                      }
                     },
                   )
                 : null,
             contentPadding: const EdgeInsets.symmetric(vertical: 12),
           ),
           onChanged: onChanged,
+          onSubmitted: (value) {
+            if (controller.text.trim().isEmpty) {
+              controller.clear();
+              focusNode.unfocus();
+              onChanged('');
+            }
+          },
         ),
       ),
     );
