@@ -2440,9 +2440,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             onSelected: (selected) => setState(() => _activeHomeSection = selected),
                             itemBuilder: (_) => const [
                               PopupMenuItem(value: 'recent', child: Row(children: [Icon(Icons.history, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Recent Songs')])),
-                              PopupMenuItem(value: 'library', child: Row(children: [Icon(PhosphorIcons.books, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Library')])),
+                              PopupMenuItem(value: 'library', child: Row(children: [Icon(Icons.queue_music, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Library')])),
                               PopupMenuItem(value: 'mixes', child: Row(children: [Icon(PhosphorIcons.vinylRecordFill, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Mixes')])),
-                              PopupMenuItem(value: 'favorites', child: Row(children: [Icon(Icons.favorite_border, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Favorites')])),
+                              PopupMenuItem(value: 'favorites', child: Row(children: [Icon(PhosphorIcons.fireFill, size: 18, color: Colors.white70), SizedBox(width: 12), Text('Favorites')])),
                             ],
                             child: const Text(
                               'recent',
