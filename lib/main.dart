@@ -2406,7 +2406,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           Platform.isMacOS ||
                           Platform.isLinux;
                       // On desktop, cap tile height so grid doesn't dominate the viewport
-                      final maxTileHeight = isDesktop ? 180.0 : double.infinity;
+                       final bool _shouldExpandGrid = (_activeHomeSection == null);
+                       final maxTileHeight = isDesktop ? (_shouldExpandGrid ? 280.0 : 180.0) : double.infinity;
                       return GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
