@@ -713,7 +713,7 @@ class DuskTuneShell extends StatefulWidget {
 
 class _DuskTuneShellState extends State<DuskTuneShell> {
 
-  bool _recentSongsCollapsed = false;
+  bool _listCollapsed = false; // Toggled by arrow button — collapses current section's list (all sections)
   // Active section on home page: null = recent, 'library'/'mixes'/'favorites'
   String? _activeHomeSection;
   bool _showHomeSearch = false;
@@ -1837,8 +1837,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
   /// Toggle recent songs collapsed state and persist to storage.
   Future<void> _toggleRecentSongs() async {
-    final newValue = !_recentSongsCollapsed;
-    setState(() => _recentSongsCollapsed = newValue);
+    final newValue = !_listCollapsed;
+    setState(() => _listCollapsed = newValue);
     // Persist via AppSettings (which wraps persistent_storage)
     await AppSettings.saveRecentSongsCollapsed(newValue);
   }
@@ -2406,7 +2406,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           Platform.isMacOS ||
                           Platform.isLinux;
                       // On desktop, cap tile height so grid doesn't dominate the viewport
-                       final bool _shouldExpandGrid = (_activeHomeSection == null);
+                       final bool _shouldExpandGrid = _listCollapsed;
                        final maxTileHeight = isDesktop ? (_shouldExpandGrid ? 280.0 : 180.0) : double.infinity;
                       return GridView.builder(
                         shrinkWrap: true,
@@ -2451,12 +2451,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                        children: [
                          IconButton(
                            icon: Icon(
-                             _recentSongsCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+                             _listCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
                              color: Colors.white70,
                              size: 24,
                            ),
                              onPressed: () {
-                               setState(() => _recentSongsCollapsed = !_recentSongsCollapsed);
+                               setState(() => _listCollapsed = !_listCollapsed);
                              },
                            ),
                          // Section name button — tap opens Library/Mixes/Favorites popup menu
@@ -2730,7 +2730,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
             // Recent songs list (ordered by last played) — collapsed by default
             // Section content — swap based on active section selection, filtered when searching
-            if (_activeHomeSection == 'library') ...[
+            if (_activeHomeSection == 'library' && !_listCollapsed) ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final songs = _searchQuery != null ? widget.allSongs.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : widget.allSongs;
@@ -2739,7 +2739,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   return _buildSongListItem(song);
                 }, childCount: (_searchQuery != null ? widget.allSongs.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : widget.allSongs).length),
               ),
-            ] else if (_activeHomeSection == 'mixes') ...[
+            ] else if (_activeHomeSection == 'mixes' && !_listCollapsed) ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final mixes = _searchQuery != null ? _mixes.where((m) => m['title'].toString().toLowerCase().contains(_searchQuery!.toLowerCase())).toList() : _mixes;
@@ -2748,7 +2748,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   return _buildMixTile(mix);
                 }, childCount: (_searchQuery != null ? _mixes.where((m) => m['title'].toString().toLowerCase().contains(_searchQuery!.toLowerCase())).toList() : _mixes).length),
               ),
-            ] else if (_activeHomeSection == 'favorites') ...[
+            ] else if (_activeHomeSection == 'favorites' && !_listCollapsed) ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final songs = _searchQuery != null ? _favorites.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : _favorites;
@@ -2769,7 +2769,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   );
                 }, childCount: (_searchQuery != null ? _favorites.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : _favorites).length),
               ),
-            ] else if (!_recentSongsCollapsed) ...[
+            ] else if (!_listCollapsed) ...[
               SliverList(
                 delegate: SliverChildBuilderDelegate((context, index) {
                   final recentSongList = getRecentSongs();
