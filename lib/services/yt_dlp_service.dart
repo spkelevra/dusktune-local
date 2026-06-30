@@ -316,5 +316,5 @@ class YtDlpService {
     }
   }
 
-  int _hash(String s) => s.hashCode.abs() + DateTime.now().millisecondsSinceEpoch;
+  int _hash(String s) => s.hashCode.abs();
 }

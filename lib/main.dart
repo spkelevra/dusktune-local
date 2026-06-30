@@ -1734,11 +1734,32 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         /// Open the mix edit overlay for a given mix.
         void openMixEdit(Map<String, dynamic> mix) {
           final songIds = List<int>.from(mix['songIds'] as List);
+          final songData = (mix['songData'] as List?) ?? [];
           final songs = <Song>[];
           for (final id in songIds) {
-            try {
-              songs.add(widget.allSongs.firstWhere((s) => s.id == id));
-            } catch (e) { debugPrint("Mix song ID not found in library: $id"); }
+            final found = widget.allSongs.where((s) => s.id == id).toList();
+            if (found.isNotEmpty) {
+              songs.add(found.first);
+            } else {
+              // Fallback: reconstruct from saved songData (e.g. streaming songs
+              // whose IDs changed across sessions before hash was stabilized).
+              for (final data in songData) {
+                if ((data['id'] as int?) == id) {
+                  songs.add(Song(
+                    id: id,
+                    title: data['title'] as String? ?? 'Unknown',
+                    uri: data['uri'] as String? ?? '',
+                    duration: data['duration'] as int? ?? 0,
+                    artist: data['artist'] as String?,
+                    streamSource: StreamSource.values.firstWhere(
+                      (e) => e.name == (data['streamSource'] as String?),
+                      orElse: () => StreamSource.local,
+                    ),
+                  ));
+                  break;
+                }
+              }
+            }
           }
           setState(() {
             _editingMix = mix;
