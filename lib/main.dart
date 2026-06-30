@@ -1691,6 +1691,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               uri: data['uri'] as String? ?? '',
               duration: data['duration'] as int? ?? 0,
               artist: data['artist'] as String?,
+              thumbnailUrl: data['thumbnailUrl'] as String?,
               streamSource: StreamSource.values.firstWhere(
                 (e) => e.name == (data['streamSource'] as String?),
                 orElse: () => StreamSource.local,
@@ -1751,6 +1752,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     uri: data['uri'] as String? ?? '',
                     duration: data['duration'] as int? ?? 0,
                     artist: data['artist'] as String?,
+                    thumbnailUrl: data['thumbnailUrl'] as String?,
                     streamSource: StreamSource.values.firstWhere(
                       (e) => e.name == (data['streamSource'] as String?),
                       orElse: () => StreamSource.local,
