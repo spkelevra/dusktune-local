@@ -15,7 +15,7 @@ A minimalist dark-mode local music player for Android, Windows, and macOS.
 | Button | Tap / Click | Long-Press / Right-Click |
 |--------|-------------|--------------------------|
 | **Tops** | Cycle to the next page of most-played tracks | Reset back to the first page (most played) |
-| **Mix** | Open save dialog for current grid as a new mix | Open the Mixes tab |
+| **Mix** | Open save dialog for current grid as a new mix | Randomly load a saved mix into the grid |
 | **The Grid** | Restore pinned grid and scroll to top | Enter pin mode with currently playing song |
 
 ## Controls

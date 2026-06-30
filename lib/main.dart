@@ -1673,17 +1673,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     await AppSettings.saveMixes(_mixes);
   }
 
-  /// Load a mix into the grid display.
-  void loadMixIntoGrid(Map<String, dynamic> mix) {
+  /// Load a mix into the grid display — extracts album art for tiles.
+  Future<void> loadMixIntoGrid(Map<String, dynamic> mix) async {
     final songIds = List<int>.from(mix['songIds'] as List);
-    // Resolve song IDs to Song objects from current library
     final resolvedSongs = <Song>[];
     for (final id in songIds) {
       final found = widget.allSongs.where((s) => s.id == id).toList();
       if (found.isNotEmpty) {
         resolvedSongs.add(found.first);
       } else {
-        // Streaming song not in local library — reconstruct from mix data
         final songDataList = mix['songData'] as List? ?? [];
         for (final data in songDataList) {
           if ((data['id'] as int?) == id) {
@@ -1704,12 +1702,26 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       }
     }
 
-    setState(() {
-          _mixGridSongs = resolvedSongs;
+    try {
+      final cleared = resolvedSongs.map((s) => s.copyWith(clearArtwork: true)).toList();
+      final extracted = await ArtworkExtractor.extractForSongsInMemory(cleared);
+      if (mounted) {
+        setState(() {
+          _mixGridSongs = extracted ?? cleared;
           _showingMix = true;
-          _shuffledTopNine = null; // clear shuffle when loading mix
+          _shuffledTopNine = null;
         });
       }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _mixGridSongs = resolvedSongs;
+          _showingMix = true;
+          _shuffledTopNine = null;
+        });
+      }
+    }
+  }
 
       /// Delete a mix by ID.
         Future<void> deleteMix(int id) async {
@@ -2576,13 +2588,19 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                                   ),
                                                 ),
                         const SizedBox(width: 4),
-                        // "Mix" button — tap prompts to name/save current grid as a mix; long-press/right-click opens mixes tab
+                        // "Mix" button — tap saves mix; long-press/right-click randomly loads a mix
                          GestureDetector(
                            onSecondaryTap: () {
-                             widget.onTabChanged(2);
+                             if (_mixes.isEmpty) return;
+                             final randomMix = _mixes[math.Random().nextInt(_mixes.length)];
+                             loadMixIntoGrid(randomMix);
+                             widget.onTabChanged(0);
                            },
                            onLongPress: () {
-                             widget.onTabChanged(2);
+                             if (_mixes.isEmpty) return;
+                             final randomMix = _mixes[math.Random().nextInt(_mixes.length)];
+                             loadMixIntoGrid(randomMix);
+                             widget.onTabChanged(0);
                            },
                            child: TextButton.icon(
                              onPressed: () {
