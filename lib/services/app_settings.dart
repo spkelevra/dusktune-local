@@ -142,16 +142,6 @@ class AppSettings {
 
   // -- Recent songs collapsed state --
 
-  /// Load whether the recent songs section is collapsed. Defaults to false (expanded).
-  static Future<bool> loadRecentSongsCollapsed() async {
-    return PersistentStorage.loadRecentSongsCollapsed();
-  }
-
-  /// Save recent songs collapse preference.
-  static Future<void> saveRecentSongsCollapsed(bool collapsed) async {
-    await PersistentStorage.saveRecentSongsCollapsed(collapsed);
-  }
-
   // -- Artwork cache --
 
   /// Get cached artwork for a song, or null if not available.
