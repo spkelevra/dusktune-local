@@ -2503,7 +2503,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           Platform.isLinux;
                       // On desktop, cap tile height so grid doesn't dominate the viewport
                        final bool _shouldExpandGrid = _listCollapsed;
-                       final maxTileHeight = isDesktop ? (_shouldExpandGrid ? 240.0 : 180.0) : double.infinity;
+                       final maxTileHeight = isDesktop ? (_shouldExpandGrid ? 270.0 : 180.0) : double.infinity;
                       return GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
@@ -2538,7 +2538,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             // Recent songs section header
              SliverToBoxAdapter(
                child: Padding(
-                 padding: const EdgeInsets.fromLTRB(8, 12, 16, 4),
+                 padding: EdgeInsets.fromLTRB(8, _listCollapsed ? 6.0 : 12.0, 16, _listCollapsed ? 0.0 : 4.0),
                  child: Row(
                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                    children: [
@@ -2549,7 +2549,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             icon: Icon(
                               _listCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
                               color: Colors.white70,
-                              size: 24,
+                              size: _listCollapsed ? 20.0 : 24.0,
                             ),
                               onPressed: () {
                                 setState(() => _listCollapsed = !_listCollapsed);
@@ -2569,7 +2569,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                            },
                            icon: Icon(
                              Icons.search,
-                             size: 20,
+                             size: _listCollapsed ? 18.0 : 20.0,
                              color: _showHomeSearch ? Colors.white : Colors.white70,
                            ),
                          ),
@@ -2583,7 +2583,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                               PopupMenuItem(value: 'favorites', child: Row(children: [Icon(PhosphorIcons.fireFill, size: 18, color: Colors.white70), SizedBox(width: 12), Text('favorites')])),
                             ],
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: _listCollapsed ? 1.0 : 3.0),
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.08),
                                 borderRadius: BorderRadius.circular(4),
@@ -2594,7 +2594,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                 _activeHomeSection == 'mixes' ? 'mixes' :
                                 _activeHomeSection == 'favorites' ? 'favorites' : 'recent',
                                 style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: _listCollapsed ? 12.0 : 13.0,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.white70,
                                   letterSpacing: 0.5,
