@@ -2467,8 +2467,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       children: [
         CustomScrollView(
           slivers: [
-            // Spacing above the grid (replaces former top picks header)
-            const SliverToBoxAdapter(child: SizedBox(height: 16)),
+            // Spacing above the grid — reduced when collapsed so center buttons stay visible
+            SliverToBoxAdapter(child: SizedBox(height: _listCollapsed ? 8.0 : 16.0)),
 
             // Top 9 grid
             // Top 9 grid (with horizontal swipe: right→shuffle, left→restore grid)
@@ -2503,7 +2503,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           Platform.isLinux;
                       // On desktop, cap tile height so grid doesn't dominate the viewport
                        final bool _shouldExpandGrid = _listCollapsed;
-                       final maxTileHeight = isDesktop ? (_shouldExpandGrid ? 280.0 : 180.0) : double.infinity;
+                       final maxTileHeight = isDesktop ? (_shouldExpandGrid ? 240.0 : 180.0) : double.infinity;
                       return GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
@@ -2893,8 +2893,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               ),
             ],
 
-            // Bottom padding for player
-            const SliverToBoxAdapter(child: SizedBox(height: 80)),
+            // Bottom padding — reduced when collapsed (no song list behind play bar)
+            SliverToBoxAdapter(child: SizedBox(height: _listCollapsed ? 4.0 : 80.0)),
           ],
         ),
       ],
