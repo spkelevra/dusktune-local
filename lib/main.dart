@@ -2514,18 +2514,25 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                               PopupMenuItem(value: 'mixes', child: Row(children: [Icon(PhosphorIcons.vinylRecordFill, size: 18, color: Colors.white70), SizedBox(width: 12), Text('mixes')])),
                               PopupMenuItem(value: 'favorites', child: Row(children: [Icon(PhosphorIcons.fireFill, size: 18, color: Colors.white70), SizedBox(width: 12), Text('favorites')])),
                             ],
-                            child: Text(
-                              _activeHomeSection == null || _activeHomeSection == 'recent' ? 'recent' :
-                              _activeHomeSection == 'library' ? 'library' :
-                              _activeHomeSection == 'mixes' ? 'mixes' :
-                              _activeHomeSection == 'favorites' ? 'favorites' : 'recent',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white70,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                _activeHomeSection == null || _activeHomeSection == 'recent' ? 'recent' :
+                                _activeHomeSection == 'library' ? 'library' :
+                                _activeHomeSection == 'mixes' ? 'mixes' :
+                                _activeHomeSection == 'favorites' ? 'favorites' : 'recent',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white70,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
