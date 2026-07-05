@@ -2626,7 +2626,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                                 _activeHomeSection == null || _activeHomeSection == 'recent' ? 'recent' :
                                 _activeHomeSection == 'library' ? 'library' :
                                 _activeHomeSection == 'mixes' ? 'mixes' :
-                                _activeHomeSection == 'favorites' ? 'favorites' : 'recent',
+                                _activeHomeSection == 'favorites' ? 'favs' : 'recent',
                                 style: TextStyle(
                                   fontSize: _listCollapsed ? 12.0 : 13.0,
                                   fontWeight: FontWeight.w600,
@@ -2897,17 +2897,25 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   final songs = _searchQuery != null ? _favorites.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : _favorites;
                   if (index >= songs.length) return const SizedBox.shrink();
                   final song = songs[index];
-                  return GestureDetector(
+                  return _buildSongTile(
+                    song,
                     onTap: () => playSong(song, queue: _favorites),
-                    child: ListTile(
-                      leading: Container(
-                        width: 40, height: 40, decoration: BoxDecoration(
-                          color: Colors.grey[850], borderRadius: BorderRadius.circular(4)),
-                        alignment: Alignment.center,
-                        child: const Icon(Icons.favorite_border, size: 18, color: Colors.white24),
-                      ),
-                      title: Text(song.title, style: const TextStyle(color: Colors.white, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(songDisplayArtist(song), style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                    trailingWidget: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _playCounts[song.id]?.toString() ?? '0',
+                          style: const TextStyle(fontSize: 10, color: Colors.white38),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 16, color: Colors.white38),
+                          onPressed: () => _removeFromFavorites(song.id),
+                          tooltip: 'Remove from favorites',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
                     ),
                   );
                 }, childCount: (_searchQuery != null ? _favorites.where((s) => s.title.toLowerCase().contains(_searchQuery!.toLowerCase()) || (s.artist != null && s.artist!.toLowerCase().contains(_searchQuery!.toLowerCase()))).toList() : _favorites).length),
@@ -3133,8 +3141,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    // Pin to Favorites button (only when NOT in favorites tab and not mix edit)
-                      if (!isMixEdit && widget.tabIndex != 3)
+                    // Pin to Favorites button (only when NOT in favorites tab/section and not mix edit)
+                      if (!isMixEdit && widget.tabIndex != 3 && _activeHomeSection != 'favorites')
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -3160,8 +3168,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                             ),
                           ],
                         ),
-                      // Remove from Favorites button (only when in favorites tab)
-                      if (!isMixEdit && widget.tabIndex == 3 && _pinSourceSong != null)
+                      // Remove from Favorites button (only when in favorites tab or favorites home section)
+                      if (!isMixEdit && (widget.tabIndex == 3 || _activeHomeSection == 'favorites') && _pinSourceSong != null)
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
