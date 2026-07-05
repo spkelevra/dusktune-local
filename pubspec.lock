@@ -316,7 +316,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: main
+      ref: "06a74ea433bde8a3acc2824298046670fdd4a82d"
       resolved-ref: "06a74ea433bde8a3acc2824298046670fdd4a82d"
       url: "https://github.com/spkelevra/mpv_audio_kit.git"
     source: git
