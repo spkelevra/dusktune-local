@@ -752,6 +752,32 @@ class _VizSmoothingSliderState extends State<_VizSmoothingSlider> {
 }
 
 /// Main app shell with top nav bar and bottom player.
+/// Custom intents for desktop keyboard shortcuts.
+/// These are used with Shortcuts + Actions to intercept keys at the action layer,
+/// preventing Space/Enter from activating focused buttons and menus.
+
+class _TogglePlayPauseIntent extends Intent {
+  const _TogglePlayPauseIntent();
+}
+
+class _PreviousSongIntent extends Intent {
+  const _PreviousSongIntent();
+}
+
+class _NextSongIntent extends Intent {
+  const _NextSongIntent();
+}
+
+class _ShuffleGridIntent extends Intent {
+  const _ShuffleGridIntent();
+}
+
+class _PlayTileIntent extends Intent {
+  final int index;
+  const _PlayTileIntent(this.index);
+}
+
+
 class DuskTuneShell extends StatefulWidget {
   final List<Song> allSongs;
   final int tabIndex;
@@ -2048,79 +2074,106 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       ),
     );
 
-    // Wrap with keyboard shortcuts on desktop (KeyboardListener avoids focus issues)
+    // Wrap with Shortcuts + Actions for desktop keyboard shortcuts.
+    // Shortcuts intercepts keys at the action layer — higher priority than focused widgets,
+    // so Space/Enter never reach buttons and menus when a shortcut is registered.
     if (isDesktop) {
-      content = KeyboardListener(
-        focusNode: _keyboardFocusNode,
-        onKeyEvent: _handleKeyEvent,
-        child: content,
+      content = Shortcuts(
+        shortcuts: _buildShortcutMap(),
+        child: Actions(
+          actions: _buildActionMap(context),
+          child: content,
+        ),
       );
     }
 
     return content;
   }
 
-  /// Handle desktop keyboard shortcuts.
-  void _handleKeyEvent(KeyEvent event) {
-    if (event is! KeyDownEvent) return;
-    final key = event.logicalKey;
+  /// Check if any search field currently has focus.
+  bool get _anySearchFieldFocused =>
+      _librarySearchFocusNode.hasFocus ||
+      _mixesSearchFocusNode.hasFocus ||
+      _favoritesSearchFocusNode.hasFocus ||
+      _gridSearchFocusNode.hasFocus ||
+      _homeSearchFocusNode.hasFocus;
 
-    // Disable all hotkeys when a search field has focus so typing works normally.
-     if (_librarySearchFocusNode.hasFocus || _mixesSearchFocusNode.hasFocus || _favoritesSearchFocusNode.hasFocus || _gridSearchFocusNode.hasFocus || _homeSearchFocusNode.hasFocus)
-       return;
+  /// Build the Shortcuts map for desktop keyboard shortcuts.
+  Map<LogicalKeySet, Intent> _buildShortcutMap() {
+    return <LogicalKeySet, Intent>{
+      LogicalKeySet(LogicalKeyboardKey.space): const _TogglePlayPauseIntent(),
+      LogicalKeySet(LogicalKeyboardKey.arrowLeft): const _PreviousSongIntent(),
+      LogicalKeySet(LogicalKeyboardKey.arrowRight): const _NextSongIntent(),
+      LogicalKeySet(LogicalKeyboardKey.backquote): const _ShuffleGridIntent(),
+      // Numpad variants for arrows
+      LogicalKeySet(LogicalKeyboardKey.numpad4): const _PreviousSongIntent(),
+      LogicalKeySet(LogicalKeyboardKey.numpad6): const _NextSongIntent(),
+      // 1-9 → play tile by position
+      LogicalKeySet(LogicalKeyboardKey.digit1): const _PlayTileIntent(0),
+      LogicalKeySet(LogicalKeyboardKey.digit2): const _PlayTileIntent(1),
+      LogicalKeySet(LogicalKeyboardKey.digit3): const _PlayTileIntent(2),
+      LogicalKeySet(LogicalKeyboardKey.digit4): const _PlayTileIntent(3),
+      LogicalKeySet(LogicalKeyboardKey.digit5): const _PlayTileIntent(4),
+      LogicalKeySet(LogicalKeyboardKey.digit6): const _PlayTileIntent(5),
+      LogicalKeySet(LogicalKeyboardKey.digit7): const _PlayTileIntent(6),
+      LogicalKeySet(LogicalKeyboardKey.digit8): const _PlayTileIntent(7),
+      LogicalKeySet(LogicalKeyboardKey.digit9): const _PlayTileIntent(8),
+      LogicalKeySet(LogicalKeyboardKey.numpad1): const _PlayTileIntent(0),
+      LogicalKeySet(LogicalKeyboardKey.numpad2): const _PlayTileIntent(1),
+      LogicalKeySet(LogicalKeyboardKey.numpad3): const _PlayTileIntent(2),
+      LogicalKeySet(LogicalKeyboardKey.numpad4): const _PlayTileIntent(3),
+      LogicalKeySet(LogicalKeyboardKey.numpad5): const _PlayTileIntent(4),
+      LogicalKeySet(LogicalKeyboardKey.numpad6): const _PlayTileIntent(5),
+      LogicalKeySet(LogicalKeyboardKey.numpad7): const _PlayTileIntent(6),
+      LogicalKeySet(LogicalKeyboardKey.numpad8): const _PlayTileIntent(7),
+      LogicalKeySet(LogicalKeyboardKey.numpad9): const _PlayTileIntent(8),
+    };
+  }
 
-    // Backtick (`) → shuffle grid
-     if (key == LogicalKeyboardKey.backquote) {
-       shuffleTopNine(context);
-       return;
-     }
-
-    // Space → toggle play/pause
-    if (key == LogicalKeyboardKey.space) {
-      AudioPlayerService.togglePlayPause();
-      setState(() => _isPlaying = !_isPlaying);
-      return;
-    }
-
-    // Left Arrow → previous song
-    if (key == LogicalKeyboardKey.arrowLeft) {
-      _skipToPrevious();
-      return;
-    }
-
-    // Right Arrow → next song
-    if (key == LogicalKeyboardKey.arrowRight) {
-      _skipToNext();
-      return;
-    }
-    // 1-9 → play tile by position
-    int? tileIndex;
-    if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1)
-      tileIndex = 0;
-    if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2)
-      tileIndex = 1;
-    if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3)
-      tileIndex = 2;
-    if (key == LogicalKeyboardKey.digit4 || key == LogicalKeyboardKey.numpad4)
-      tileIndex = 3;
-    if (key == LogicalKeyboardKey.digit5 || key == LogicalKeyboardKey.numpad5)
-      tileIndex = 4;
-    if (key == LogicalKeyboardKey.digit6 || key == LogicalKeyboardKey.numpad6)
-      tileIndex = 5;
-    if (key == LogicalKeyboardKey.digit7 || key == LogicalKeyboardKey.numpad7)
-      tileIndex = 6;
-    if (key == LogicalKeyboardKey.digit8 || key == LogicalKeyboardKey.numpad8)
-      tileIndex = 7;
-    if (key == LogicalKeyboardKey.digit9 || key == LogicalKeyboardKey.numpad9)
-      tileIndex = 8;
-
-    if (tileIndex != null) {
-       final gridSongs = getGridSongs();
-       if (tileIndex < gridSongs.length) {
-         setState(() => _selectedGridTile = tileIndex);
-         playSong(gridSongs[tileIndex], queue: gridSongs);
-       }
-     }
+  /// Build the Actions map for desktop keyboard shortcuts.
+  Map<Type, Action<Intent>> _buildActionMap(BuildContext context) {
+    return <Type, Action<Intent>>{
+      _TogglePlayPauseIntent: CallbackAction<_TogglePlayPauseIntent>(
+        onInvoke: (_) {
+          if (_anySearchFieldFocused) return null;
+          AudioPlayerService.togglePlayPause();
+          setState(() => _isPlaying = !_isPlaying);
+          return null;
+        },
+      ),
+      _PreviousSongIntent: CallbackAction<_PreviousSongIntent>(
+        onInvoke: (_) {
+          if (_anySearchFieldFocused) return null;
+          _skipToPrevious();
+          return null;
+        },
+      ),
+      _NextSongIntent: CallbackAction<_NextSongIntent>(
+        onInvoke: (_) {
+          if (_anySearchFieldFocused) return null;
+          _skipToNext();
+          return null;
+        },
+      ),
+      _ShuffleGridIntent: CallbackAction<_ShuffleGridIntent>(
+        onInvoke: (_) {
+          if (_anySearchFieldFocused) return null;
+          shuffleTopNine(context);
+          return null;
+        },
+      ),
+      _PlayTileIntent: CallbackAction<_PlayTileIntent>(
+        onInvoke: (intent) {
+          if (_anySearchFieldFocused) return null;
+          final gridSongs = getGridSongs();
+          if (intent.index < gridSongs.length) {
+            setState(() => _selectedGridTile = intent.index);
+            playSong(gridSongs[intent.index], queue: gridSongs);
+          }
+          return null;
+        },
+      ),
+    };
   }
 
   /// Show the rename dialog for editing the app title.
