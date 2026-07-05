@@ -4639,8 +4639,8 @@ class _SettingsContentState extends State<_SettingsContent> {
         // Use AppleScript to show a native folder picker dialog.
         final result = await Process.run(
           'osascript', ['-e',
-            r'set chosenFolder to choose folder with prompt "Select music folder" as alias'
-            r'return POSIX path of chosenFolder'],
+            'set chosenFolder to (choose folder with prompt "Select music folder") as alias\n'
+            'return POSIX path of chosenFolder'],
         );
         path = (result.stdout as String).trim();
       } else if (Platform.isLinux) {
