@@ -75,13 +75,7 @@ Future<bool> isFolderAccessible(String folderPath) async {
         debugPrint('DesktopMusicScanner: folder does not exist: $folderPath');
         return false;
       }
-      // Quick list to confirm it's readable
-      try {
-        await dir.list().first.timeout(_accessTimeout);
-      } catch (_) {
-        debugPrint('DesktopMusicScanner: folder not readable: $folderPath');
-        return false;
-      }
+      // On Windows, Directory.exists() is sufficient — it blocks until resolved.
     } else {
       // macOS/Linux: use subprocess so we can hard-kill on timeout.
       final result = await Process.run('stat', ['-f', '%z', folderPath])

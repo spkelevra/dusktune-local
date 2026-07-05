@@ -4564,9 +4564,12 @@ class _SettingsContentState extends State<_SettingsContent> {
     final trimmed = (path ?? _addPathController.text).trim();
     if (trimmed.isEmpty) return;
 
+    // SMB URLs are passed through directly — mpv plays them natively.
+    // Don't run local accessibility checks on network paths.
+    final isSmbUrl = trimmed.startsWith('smb://');
     final normalized = desktop_scanner.normalizePath(trimmed);
 
-    if (!await desktop_scanner.isFolderAccessible(normalized)) {
+    if (!isSmbUrl && !await desktop_scanner.isFolderAccessible(normalized)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -4613,6 +4616,51 @@ class _SettingsContentState extends State<_SettingsContent> {
           content: Text('Removed: $removed — $songCount songs remaining'),
         ),
       );
+    }
+  }
+
+  /// Pick a folder via native dialog (desktop only).
+  Future<void> _pickFolder() async {
+    try {
+      String? path;
+      if (Platform.isWindows) {
+        // Use cscript.exe (console host) so stdout is captured reliably.
+        final tmp = Directory.systemTemp.path.replaceAll(r'\', '/');
+        final vbsPath = '$tmp/dusktune_pick_folder.vbs';
+        const vbs = 'Set objFolder = CreateObject("Shell.Application").BrowseForFolder(0, "Select music folder", 0)\n'
+            'If Not objFolder Is Nothing Then\n'
+            '    WScript.Echo objFolder.Self.Path\n'
+            'End If';
+        File(vbsPath).writeAsStringSync(vbs);
+        final result = await Process.run('cscript.exe', [vbsPath, '//nologo']);
+        path = (result.stdout as String).trim();
+        try { File(vbsPath).deleteSync(); } catch (_) {}
+      } else if (Platform.isMacOS) {
+        // Use AppleScript to show a native folder picker dialog.
+        final result = await Process.run(
+          'osascript', ['-e',
+            r'set chosenFolder to choose folder with prompt "Select music folder" as alias'
+            r'return POSIX path of chosenFolder'],
+        );
+        path = (result.stdout as String).trim();
+      } else if (Platform.isLinux) {
+        // Try zenity first, fall back to kdialog.
+        var result = await Process.run('zenity', ['--file-selection', '--directory']);
+        if (result.exitCode == 0) {
+          path = (result.stdout as String).trim();
+        } else {
+          result = await Process.run('kdialog', ['--getexistingdirectory']);
+          if (result.exitCode == 0) {
+            path = (result.stdout as String).trim();
+          }
+        }
+      }
+
+      if (path != null && path.isNotEmpty && mounted) {
+        setState(() => _addPathController.text = path!);
+      }
+    } catch (e) {
+      debugPrint('Folder picker error: $e');
     }
   }
 
@@ -5015,6 +5063,17 @@ class _SettingsContentState extends State<_SettingsContent> {
                     // Add folder row
                     Row(
                       children: [
+                        if (_isDesktop) ...[
+                          ElevatedButton.icon(
+                            onPressed: _pickFolder,
+                            icon: const Icon(Icons.folder_open, size: 18),
+                            label: const Text('Browse'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         Expanded(
                           child: TextField(
                             controller: _addPathController,
@@ -5195,8 +5254,9 @@ class _SettingsContentState extends State<_SettingsContent> {
                     // Info
                     Text(
                       'Supported formats: MP3, FLAC, WAV, M4A, OGG, AAC, WMA, Opus\n\n'
-                      'Network/SMB folders are supported — enter the mount path (e.g. /Volumes/Share/Music)\n'
-                      'or SMB URL (smb://host/share/path). Folders must be mounted and accessible.\n\n'
+                      'SMB/network playback is supported — enter an SMB URL directly\n'
+                      '(e.g. smb://server/share/music-folder) or a local folder path.\n'
+                      'mpv plays SMB URLs natively, no manual mounting required.\n\n'
                       'Changes take effect immediately — your library is re-scanned when you add or remove a folder.',
                       style: TextStyle(
                         fontSize: 12,
