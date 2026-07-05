@@ -2830,9 +2830,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                               size: 16,
                               color: Colors.white54,
                             ),
-                            label: const Text(
-                              'grid',
-                              style: TextStyle(
+                            label: Text(
+                              _appName.toLowerCase() == 'undernightintune' ? 'GRD' : 'grid',
+                              style: const TextStyle(
                                 fontSize: 12,
                                 color: Colors.white54,
                               ),
