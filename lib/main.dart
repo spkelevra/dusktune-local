@@ -2277,14 +2277,23 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             },
             onLongPress: _showRenameDialog,
             onSecondaryTap: _showRenameDialog,
-            child: Text(
-              _appName,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: Colors.white70,
-                letterSpacing: 0.5,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _appName,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white70,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                if (_appName.toLowerCase() == 'dinnertune') ...[
+                  const SizedBox(width: 4),
+                  const Icon(PhosphorIcons.pizza, size: 16, color: Colors.white70),
+                ],
+              ],
             ),
           ),
           const SizedBox(width: 8),
