@@ -879,6 +879,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   final FocusNode _gridSearchFocusNode = FocusNode();
   List<Song>? _homeGridSearchResults;
   int _searchPage = 0;
+
+  // Scroll controller for home tab — used by title button to snap to top
+  final ScrollController _homeScrollController = ScrollController();
   OverlayEntry? _gridSearchOverlayEntry;
 
   @override
@@ -1096,6 +1099,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      _favoritesSearchFocusNode.dispose();
     // Remove search overlay if visible
     _hideGridSearchOverlay();
+    _homeScrollController.dispose();
     _gridSearchController.dispose();
     _gridSearchFocusNode.dispose();
     // Stop ALS service
@@ -2119,6 +2123,44 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      }
   }
 
+  /// Show the rename dialog for editing the app title.
+  void _showRenameDialog() {
+    showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final ctrl = TextEditingController(text: _appName);
+        return AlertDialog(
+          title: const Text('Rename'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'App name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                final name = ctrl.text.trim();
+                if (name.isNotEmpty) {
+                  setState(() => _appName = name);
+                  _saveAppName(name);
+                }
+                Navigator.pop(ctx);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   /// Top navigation bar with editable app name + tab buttons.
   Widget _buildTopNav() {
     return Container(
@@ -2130,83 +2172,21 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       ),
       child: Row(
         children: [
-          // App name — tap goes home, hold/right-click opens rename
+          // App name — tap goes home/scrolls-to-top, hold/right-click opens rename
           GestureDetector(
             onTap: () {
-                          widget.onTabChanged(0);
-                        },
-            onLongPress: () {
-              showDialog<String>(
-                context: context,
-                builder: (ctx) {
-                  final ctrl = TextEditingController(text: _appName);
-                  return AlertDialog(
-                    title: const Text('Rename'),
-                    content: TextField(
-                      controller: ctrl,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: 'App name',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          final name = ctrl.text.trim();
-                          if (name.isNotEmpty) {
-                            setState(() => _appName = name);
-                            _saveAppName(name);
-                          }
-                          Navigator.pop(ctx);
-                        },
-                        child: const Text('Save'),
-                      ),
-                    ],
-                  );
-                },
-              );
+              if (widget.tabIndex == 0) {
+                // Already on home page — snap to top instantly
+                if (_homeScrollController.hasClients) {
+                  _homeScrollController.jumpTo(0);
+                }
+              } else {
+                // On another page (e.g. settings) — go back to home
+                widget.onTabChanged(0);
+              }
             },
-            onSecondaryTap: () {
-              showDialog<String>(
-                context: context,
-                builder: (ctx) {
-                  final ctrl = TextEditingController(text: _appName);
-                  return AlertDialog(
-                    title: const Text('Rename'),
-                    content: TextField(
-                      controller: ctrl,
-                      autofocus: true,
-                      decoration: const InputDecoration(
-                        hintText: 'App name',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          final name = ctrl.text.trim();
-                          if (name.isNotEmpty) {
-                            setState(() => _appName = name);
-                            _saveAppName(name);
-                          }
-                          Navigator.pop(ctx);
-                        },
-                        child: const Text('Save'),
-                      ),
-                    ],
-                  );
-                },
-              );
-            },
+            onLongPress: _showRenameDialog,
+            onSecondaryTap: _showRenameDialog,
             child: Text(
               _appName,
               style: const TextStyle(
@@ -2466,6 +2446,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     return Stack(
       children: [
         CustomScrollView(
+          controller: _homeScrollController,
           slivers: [
             // Spacing above the grid — reduced when collapsed so center buttons stay visible
             SliverToBoxAdapter(child: SizedBox(height: _listCollapsed ? 8.0 : 16.0)),
