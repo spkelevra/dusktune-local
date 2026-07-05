@@ -49,22 +49,51 @@ void main() async {
   runApp(const DuskTuneApp());
 }
 
-class DuskTuneApp extends StatelessWidget {
+/// Easter egg: if the user sets their app title to "dawntune" (case-insensitive),
+/// the entire app theme inverts to a light/white palette.
+class DuskTuneApp extends StatefulWidget {
   const DuskTuneApp({super.key});
+
+  @override
+  State<DuskTuneApp> createState() => _DuskTuneAppState();
+}
+
+class _DuskTuneAppState extends State<DuskTuneApp> {
+  ThemeData _theme = appDarkTheme;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTheme();
+  }
+
+  /// Load the app name and apply the appropriate theme.
+  Future<void> _loadTheme() async {
+    final name = await AppSettings.loadAppName();
+    if (mounted && name.toLowerCase().startsWith('dawntune')) {
+      setState(() => _theme = appLightTheme);
+    }
+  }
+
+  /// Re-evaluate the theme (called by [AppRoot] when the app name changes).
+  void refreshTheme() {
+    _loadTheme();
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'dusktune',
       debugShowCheckedModeBanner: false,
-      theme: appDarkTheme,
-      home: const AppRoot(),
+      theme: _theme,
+      home: AppRoot(onThemeRefresh: refreshTheme),
     );
   }
 }
 
 class AppRoot extends StatefulWidget {
-  const AppRoot({super.key});
+  final VoidCallback onThemeRefresh;
+  const AppRoot({required this.onThemeRefresh, super.key});
 
   @override
   State<AppRoot> createState() => _AppRootState();
@@ -216,6 +245,7 @@ class _AppRootState extends State<AppRoot> {
        onSourceModeChanged: (mode) => setState(() => _sourceMode = mode),
        scService: _scService,
        ytService: _ytService,
+       onThemeRefresh: widget.onThemeRefresh,
      );
     }
     }
@@ -788,6 +818,8 @@ class DuskTuneShell extends StatefulWidget {
   final ValueChanged<String> onSourceModeChanged;
   final SoundCloudService scService;
   final YouTubeService ytService;
+  /// Callback to refresh the app theme (e.g. after renaming app title).
+  final VoidCallback onThemeRefresh;
 
   const DuskTuneShell({
     super.key,
@@ -799,6 +831,7 @@ class DuskTuneShell extends StatefulWidget {
     required this.onSourceModeChanged,
     required this.scService,
     required this.ytService,
+    required this.onThemeRefresh,
   });
 
   @override
@@ -1110,7 +1143,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   }
 
   Future<void> _saveAppName(String name) async {
+    // Easter egg: append ":>" to "dawntune"
+    if (name.toLowerCase() == 'dawntune') name = 'dawntune :>';
     await AppSettings.saveAppName(name);
+    widget.onThemeRefresh();
   }
 
   @override
@@ -2201,8 +2237,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               onPressed: () {
                 final name = ctrl.text.trim();
                 if (name.isNotEmpty) {
-                  setState(() => _appName = name);
-                  _saveAppName(name);
+                  final saved = name.toLowerCase() == 'dawntune' ? 'dawntune :>' : name;
+                  setState(() => _appName = saved);
+                  _saveAppName(saved);
                 }
                 Navigator.pop(ctx);
               },
