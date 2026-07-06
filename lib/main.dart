@@ -4925,15 +4925,6 @@ class _SettingsContentState extends State<_SettingsContent> {
                     },
                   ),
 
-                  // Note about restart
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16, bottom: 24),
-                    child: Text(
-                      'App will close after toggling — reopen to apply. First enable extracts artwork from your music library.',
-                      style: TextStyle(fontSize: 10, color: Colors.grey[600], height: 1.5),
-                    ),
-                  ),
-
                   // --- Light detection toggle (Android only) ---
                   const SizedBox(height: 24),
                   FutureBuilder<bool>(
@@ -5010,9 +5001,7 @@ class _SettingsContentState extends State<_SettingsContent> {
                     },
                   ),
 
-
-
-
+                  const SizedBox(height: 24),
 
                   // Clear all data button
                   InkWell(
@@ -5289,19 +5278,6 @@ class _SettingsContentState extends State<_SettingsContent> {
                         );
                       },
                       ),
-
-                      // Note about restart (desktop)
-                      Padding(
-                       padding: const EdgeInsets.only(left: 16, bottom: 8),
-                       child: Text(
-                         'App will close after toggling — reopen to apply. First enable extracts artwork from your music library.',
-                         style: TextStyle(fontSize: 10, color: Colors.grey[600], height: 1.5),
-                       ),
-                      ),
-
-
-
-
 
                     const SizedBox(height: 32),
 
