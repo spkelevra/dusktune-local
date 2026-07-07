@@ -64,10 +64,12 @@ void _fftIsolateMain(List<dynamic> args) {
       }
 
       final List<double> bands;
-      if (smoothing <= 0.05) {
+      if (smoothing <= 0.02) {
         bands = msg;
       } else {
-        final alpha = smoothing.clamp(0.1, 0.95);
+        // Non-linear curve: slider 0→1 maps to alpha 0.02→0.98
+        // so the user feels the difference across the full range.
+        final alpha = math.pow(smoothing, 2.0).clamp(0.02, 0.98);
         final s = smoothed!;
         for (int i = 0; i < msg.length; i++) {
           s[i] = s[i] * alpha + msg[i] * (1.0 - alpha);

@@ -284,7 +284,7 @@ class _BarsVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_BarsVizPainter old) => bandsOverride != old.bandsOverride || isPlaying != old.isPlaying || intensity != old.intensity;
+  bool shouldRepaint(_BarsVizPainter old) => true;
 }
 
 /// Waveform-style visualizer -- smooth wave envelope driven by FFT bands.
@@ -333,7 +333,7 @@ class _WaveVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_WaveVizPainter old) => bandsOverride != old.bandsOverride || intensity != old.intensity;
+  bool shouldRepaint(_WaveVizPainter old) => true;
 }
 
 /// Dot-matrix visualizer — grid of dots whose brightness follows FFT bands.
@@ -375,7 +375,7 @@ class _DotsVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DotsVizPainter old) => bandsOverride != old.bandsOverride || intensity != old.intensity;
+  bool shouldRepaint(_DotsVizPainter old) => true;
 }
 
 
@@ -475,7 +475,7 @@ class _PeakHoldVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_PeakHoldVizPainter old) => bandsOverride != old.bandsOverride || peakHoldOverride != old.peakHoldOverride || intensity != old.intensity;
+  bool shouldRepaint(_PeakHoldVizPainter old) => true;
 }
 
 
