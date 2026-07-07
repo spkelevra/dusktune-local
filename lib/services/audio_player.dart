@@ -7,6 +7,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:mpv_audio_kit/mpv_audio_kit.dart';
 import '../models/song.dart';
+import '../audio/fft_isolate.dart';
 
 /// Singleton audio handler — uses mpv directly (no background isolate).
 class MpvAudioHandler {
@@ -404,10 +405,40 @@ class AudioPlayerService {
   static MpvAudioHandler? _handler;
   static final bool _isDesktop = !Platform.isAndroid && !Platform.isIOS;
 
+  /// FFT processing isolate — runs smoothing + band aggregation off UI thread.
+  static final _fftProcessor = FftProcessor();
+
   /// Initialize the audio service (call once in main()).
   static Future<void> init() async {
     _handler = MpvAudioHandler();
     debugPrint('AudioPlayerService: initialized with mpv_audio_kit');
+
+    // Start FFT processing isolate
+    await _fftProcessor.start();
+    debugPrint('AudioPlayerService: FFT isolate started');
+
+    // Bridge: feed raw FFT frames into the isolate pipeline
+    _handler!.fftStream.listen((frame) {
+      _fftProcessor.feed(frame.bands);
+    });
+  }
+
+  /// Processed visualiser data stream (pre-smoothed, 32 display bars).
+  static Stream<VisualizerData> get processedVizStream => _fftProcessor.stream;
+
+  /// Feed the isolate a new smoothing value.
+  static void setVizSmoothing(double value) {
+    _fftProcessor.setSmoothing(value);
+  }
+
+  /// Reset isolate internal buffers.
+  static void resetVizBuffers() {
+    _fftProcessor.reset();
+  }
+
+  /// Stop the FFT isolate (call on dispose / app background).
+  static Future<void> stopFftProcessor() async {
+    await _fftProcessor.stop();
   }
 
   static MpvAudioHandler? get handler => _handler;
@@ -522,7 +553,11 @@ class AudioPlayerService {
   /// Smoothing/decay factor: 0.0 (no smoothing, raw FFT), 1.0 (heavy smoothing).
   static double _smoothingFactor = 0.5;
   static double get smoothingFactor => _smoothingFactor;
-  static set smoothingFactor(double v) => _smoothingFactor = v.clamp(0.0, 1.0);
+  static set smoothingFactor(double v) {
+    _smoothingFactor = v.clamp(0.0, 1.0);
+    // Push smoothing update to the FFT isolate in real time
+    setVizSmoothing(_smoothingFactor);
+  }
   static String get vizStyle => _vizStyle;
   static set vizStyle(String s) => _vizStyle = s;
 

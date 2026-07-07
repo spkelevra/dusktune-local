@@ -19,6 +19,7 @@ import 'services/youtube_service.dart';
 import 'widgets/rotary_filter_knob.dart';
 import 'widgets/tile_pattern.dart';
 import 'package:mpv_audio_kit/mpv_audio_kit.dart';
+import 'audio/fft_isolate.dart';
 import 'dart:async';
 
 /// Returns true if running on a desktop platform (Windows, macOS, Linux).
@@ -253,34 +254,23 @@ class _AppRootState extends State<AppRoot> {
 enum _VizStyle { bars, wave, dots, circles, peakhold }
 
 class _BarsVizPainter extends CustomPainter {
-  final FftFrame? frame;
+  final List<double>? bandsOverride;
   final bool isPlaying;
   final double intensity;
-  final List<double>? bandsOverride;
 
   static final Paint _paint = Paint();
 
-  const _BarsVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0, this.bandsOverride});
+  const _BarsVizPainter({this.bandsOverride, this.isPlaying = false, this.intensity = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (frame == null || frame!.bands.isEmpty) return;
+    final bands = bandsOverride;
+    if (bands == null || bands.isEmpty) return;
 
-    final bands = bandsOverride ?? frame!.bands;
-    const bandCount = 32;
-    final step = (bands.length / bandCount).ceil();
+    final barWidth = size.width / bands.length - 1.0;
 
-    final barWidth = size.width / bandCount - 1.0;
-
-    for (int i = 0; i < bandCount && i * step < bands.length; i++) {
-      double value = 0;
-      int count = 0;
-      for (int j = 0; j < step && i * step + j < bands.length; j++) {
-        value += bands[i * step + j];
-        count++;
-      }
-      if (count > 0) value /= count;
-
+    for (int i = 0; i < bands.length; i++) {
+      final value = bands[i];
       final effectiveValue = math.min(1.0, value * intensity);
       final barHeight = math.max(1.0, effectiveValue * size.height);
 
@@ -294,39 +284,28 @@ class _BarsVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_BarsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying || intensity != old.intensity || bandsOverride != old.bandsOverride;
+  bool shouldRepaint(_BarsVizPainter old) => bandsOverride != old.bandsOverride || isPlaying != old.isPlaying || intensity != old.intensity;
 }
 
 /// Waveform-style visualizer -- smooth wave envelope driven by FFT bands.
 class _WaveVizPainter extends CustomPainter {
-  final FftFrame? frame;
-  final bool isPlaying;
-  final double intensity;
   final List<double>? bandsOverride;
+  final double intensity;
 
   static final Paint _paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 1.5;
 
-  const _WaveVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0, this.bandsOverride});
+  const _WaveVizPainter({this.bandsOverride, this.intensity = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (frame == null || frame!.bands.isEmpty) return;
+    final bands = bandsOverride;
+    if (bands == null || bands.isEmpty) return;
 
-    final bands = bandsOverride ?? frame!.bands;
-    const bandCount = 32;
-    final step = (bands.length / bandCount).ceil();
-
+    final bandCount = bands.length;
     final path = Path()..moveTo(0, size.height * 0.5);
 
-    for (int i = 0; i < bandCount && i * step < bands.length; i++) {
-      double value = 0;
-      int count = 0;
-      for (int j = 0; j < step && i * step + j < bands.length; j++) {
-        value += bands[i * step + j];
-        count++;
-      }
-      if (count > 0) value /= count;
-
+    for (int i = 0; i < bandCount; i++) {
+      final value = bands[i];
       final x = (i / bandCount) * size.width;
       final effectiveValue = math.min(1.0, value * intensity);
       final y = size.height * 0.5 - effectiveValue * size.height * 0.4;
@@ -340,16 +319,9 @@ class _WaveVizPainter extends CustomPainter {
 
     // Mirror the bottom half for symmetry
     final mirrorPath = Path()..moveTo(size.width, size.height * 0.5);
-    for (int i = bandCount - 1; i >= 0 && (i-1) * step < bands.length; i--) {
-      double value = 0;
-      int count = 0;
-      for (int j = 0; j < step && i * step + j < bands.length; j++) {
-        value += bands[i * step + j];
-        count++;
-      }
-      if (count > 0) value /= count;
-
-      final x = ((i-1) / bandCount) * size.width;
+    for (int i = bandCount - 1; i >= 0; i--) {
+      final value = bands[i];
+      final x = (i / bandCount) * size.width;
       final effectiveValueMirror = math.min(1.0, value * intensity);
       final y = size.height * 0.5 + effectiveValueMirror * size.height * 0.4;
       mirrorPath.lineTo(x, y);
@@ -361,44 +333,35 @@ class _WaveVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_WaveVizPainter old) => frame != old.frame || isPlaying != old.isPlaying || intensity != old.intensity || bandsOverride != old.bandsOverride;
+  bool shouldRepaint(_WaveVizPainter old) => bandsOverride != old.bandsOverride || intensity != old.intensity;
 }
 
 /// Dot-matrix visualizer — grid of dots whose brightness follows FFT bands.
 class _DotsVizPainter extends CustomPainter {
-  final FftFrame? frame;
-  final bool isPlaying;
-  final double intensity;
   final List<double>? bandsOverride;
+  final double intensity;
 
   static final Paint _paint = Paint();
 
-  const _DotsVizPainter({this.frame, this.isPlaying = false, this.intensity = 1.0, this.bandsOverride});
+  const _DotsVizPainter({this.bandsOverride, this.intensity = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (frame == null || frame!.bands.isEmpty) return;
+    final bands = bandsOverride;
+    if (bands == null || bands.isEmpty) return;
 
-    final bands = bandsOverride ?? frame!.bands;
     const cols = 16;
     const rows = 8;
-    final step = (bands.length / (cols * rows)).ceil();
+    final bandCount = bands.length;
 
     final baseDotRadius = math.min(size.width / (cols * 2.5), size.height / (rows * 2.5));
 
-    for (int col = 0; col < cols && col * step < bands.length; col++) {
+    for (int col = 0; col < cols; col++) {
       for (int row = 0; row < rows; row++) {
-        final bandIdx = col * step + row * step ~/ rows;
+        final bandIdx = ((col * rows + row) * bandCount) ~/ (cols * rows);
         if (bandIdx >= bands.length) continue;
 
-        double value = 0;
-        int count = 0;
-        for (int j = 0; j < step && bandIdx + j < bands.length; j++) {
-          value += bands[bandIdx + j];
-          count++;
-        }
-        if (count > 0) value /= count;
-
+        final value = bands[bandIdx];
         final effectiveValueDots = math.min(1.0, value * intensity);
         final opacity = math.max(0.1, math.min(1.0, 0.3 + effectiveValueDots * 0.7));
         final dotRadius = baseDotRadius * (0.5 + effectiveValueDots * 1.0);
@@ -412,20 +375,19 @@ class _DotsVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DotsVizPainter old) => frame != old.frame || isPlaying != old.isPlaying || intensity != old.intensity || bandsOverride != old.bandsOverride;
+  bool shouldRepaint(_DotsVizPainter old) => bandsOverride != old.bandsOverride || intensity != old.intensity;
 }
 
 
 /// Radar-style visualizer -- concentric rings whose radii expand with FFT energy.
 class _CirclesVizPainter extends CustomPainter {
-  final FftFrame? frame;
   final double intensity;
   /// Pre-aggregated display bars (32 values, 0..1). No inner aggregation needed.
   final List<double>? displayBars;
   /// Reusable Paint -- avoids allocating one per ring at 60fps.
   static final Paint _paint = Paint()..style = PaintingStyle.stroke..strokeWidth = 1.5;
 
-  const _CirclesVizPainter({this.frame, this.intensity = 1.0, this.displayBars});
+  const _CirclesVizPainter({this.intensity = 1.0, this.displayBars});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -468,33 +430,26 @@ class _CirclesVizPainter extends CustomPainter {
 
 /// Peak Hold visualizer — bars with a small peak indicator that decays slowly, showing energy history.
 class _PeakHoldVizPainter extends CustomPainter {
-  final FftFrame? frame;
-  final double intensity;
   final List<double>? bandsOverride;
+  final List<double>? peakHoldOverride;
+  final double intensity;
 
   static final Paint _paint = Paint();
   static final Paint _mainPaint = Paint()..style = PaintingStyle.fill;
 
-  const _PeakHoldVizPainter({this.frame, this.intensity = 1.0, this.bandsOverride});
+  const _PeakHoldVizPainter({this.bandsOverride, this.peakHoldOverride, this.intensity = 1.0});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (frame == null || frame!.bands.isEmpty) return;
+    final bands = bandsOverride;
+    if (bands == null || bands.isEmpty) return;
 
-    final bands = bandsOverride ?? frame!.bands;
-    const bandCount = 32;
-    final step = (bands.length / bandCount).ceil();
+    final bandCount = bands.length;
     final barWidth = size.width / bandCount - 1.0;
+    final peaks = peakHoldOverride;
 
-    for (int i = 0; i < bandCount && i * step < bands.length; i++) {
-      double value = 0;
-      int count = 0;
-      for (int j = 0; j < step && i * step + j < bands.length; j++) {
-        value += bands[i * step + j];
-        count++;
-      }
-      if (count > 0) value /= count;
-
+    for (int i = 0; i < bandCount; i++) {
+      final value = bands[i];
       final effectiveValue = math.min(1.0, value * intensity);
       final barHeight = math.max(1.0, effectiveValue * size.height);
 
@@ -505,8 +460,10 @@ class _PeakHoldVizPainter extends CustomPainter {
         _paint,
       );
 
-      // Peak hold indicator: small white line at a "peak" level.
-      final peakValue = math.min(1.0, effectiveValue + 0.15);
+      // Peak hold indicator: small white line at peak level from isolate.
+      final peakValue = peaks != null && peaks.length > i
+          ? math.min(1.0, peaks[i])
+          : math.min(1.0, effectiveValue + 0.15);
       final peakHeight = math.max(2.0, peakValue * size.height);
 
       _mainPaint.color = Colors.white.withOpacity(0.9);
@@ -518,7 +475,7 @@ class _PeakHoldVizPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_PeakHoldVizPainter old) => frame != old.frame || intensity != old.intensity || bandsOverride != old.bandsOverride;
+  bool shouldRepaint(_PeakHoldVizPainter old) => bandsOverride != old.bandsOverride || peakHoldOverride != old.peakHoldOverride || intensity != old.intensity;
 }
 
 
@@ -533,11 +490,10 @@ class _VizTile extends StatefulWidget {
 }
 
 class _VizTileState extends State<_VizTile> with TickerProviderStateMixin {
-  FftFrame? _frame;
-  StreamSubscription<FftFrame>? _sub;
+  /// Latest processed visualiser data from the FFT isolate.
+  VisualizerData? _vizData;
+  StreamSubscription<VisualizerData>? _sub;
   late final AnimationController _fadeCtrl;
-  /// Smoothed band values -- exponential moving average of raw FFT bands.
-  List<double>? _smoothedBands;
   /// Interpolated display bars for circles visualizer (32 values, 0..1).
   final List<double> _displayBars = List<double>.filled(32, 0.0);
   /// Target display bars from the latest FFT frame.
@@ -557,13 +513,15 @@ class _VizTileState extends State<_VizTile> with TickerProviderStateMixin {
     _interpCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 16));
     _interpTween = CurvedAnimation(parent: _interpCtrl, curve: Curves.linear);
     _interpTween.addListener(_onInterpTick);
-    // Listen to FFT stream -- update source bars directly, no setState.
-    _sub = AudioPlayerService.fftStream.listen(_onFftFrame);
+    // Listen to processed visualiser stream from the FFT isolate.
+    // Smoothing + band aggregation are done off the UI thread.
+    _sub = AudioPlayerService.processedVizStream.listen(_onVizData);
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _interpCtrl.stop();
     _vizNotifier.dispose();
     _interpTween.removeListener(_onInterpTick);
     _interpCtrl.dispose();
@@ -571,62 +529,22 @@ class _VizTileState extends State<_VizTile> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  /// Called at 60fps by the animation ticker -- interpolates display bars for circles.
+  /// 60fps ticker — EMA interpolation toward target for ALL styles.
   void _onInterpTick() {
-    final t = _interpTween.value;
-    // Linear interpolation: display = current + t * (target - current)
+    const alpha = 0.15; // per-frame blend factor
     for (int i = 0; i < 32; i++) {
-      _displayBars[i] = _displayBars[i] + t * (_targetBars[i] - _displayBars[i]);
+      _displayBars[i] += alpha * (_targetBars[i] - _displayBars[i]);
     }
-    // Notify painter to repaint at 60fps.
     _vizNotifier.value = ++_tick;
   }
 
-  void _onFftFrame(FftFrame frame) {
-    final smoothing = AudioPlayerService.smoothingFactor;
-    if (smoothing <= 0.05) {
-      // No smoothing -- use raw data directly
-      _frame = frame;
-      _updateDisplayBars(frame.bands);
-      return;
+  /// New frame from isolate — update target.
+  void _onVizData(VisualizerData data) {
+    _vizData = data;
+    for (int i = 0; i < 32 && i < data.displayBars.length; i++) {
+      _targetBars[i] = math.min(1.0, data.displayBars[i]);
     }
-
-    if (_smoothedBands == null || _smoothedBands!.length != frame.bands.length) {
-      _smoothedBands = List<double>.filled(frame.bands.length, 0.0);
-    }
-
-    final alpha = smoothing.clamp(0.1, 0.95); // blend factor: higher = more of previous (smoother)
-    for (int i = 0; i < frame.bands.length; i++) {
-      _smoothedBands![i] = _smoothedBands![i] * alpha + frame.bands[i] * (1.0 - alpha);
-    }
-
-    _frame = frame; // keep reference so painters can read bands via us
-    _updateDisplayBars(_smoothedBands!);
-  }
-
-  /// Aggregate bands to 32 display bars and kick off interpolation for circles.
-  void _updateDisplayBars(List<double> bands) {
-    const barCount = 32;
-    final step = (bands.length / barCount).ceil();
-    // Aggregate raw/smoothed bands to 32 display bars -- no bass boost, straight averaging.
-    for (int i = 0; i < barCount; i++) {
-      double value = 0;
-      int count = 0;
-      for (int j = 0; j < step && i * step + j < bands.length; j++) {
-        value += bands[i * step + j];
-        count++;
-      }
-      if (count > 0) value /= count;
-      _targetBars[i] = math.min(1.0, value);
-    }
-    // If animation is complete or hasn't started, jump to target immediately.
-    if (_interpCtrl.isCompleted || !_interpCtrl.isAnimating) {
-      _displayBars.setRange(0, barCount, _targetBars);
-      _vizNotifier.value = ++_tick;
-    } else {
-      // Restart interpolation from current display position toward new target.
-      _interpCtrl.forward(from: 0.0);
-    }
+    if (!_interpCtrl.isAnimating) _interpCtrl.repeat();
   }
 
   @override
@@ -661,11 +579,11 @@ class _VizTileState extends State<_VizTile> with TickerProviderStateMixin {
   CustomPainter _vizPainter() {
     final intensity = AudioPlayerService.vizIntensity;
     switch (_style) {
-      case _VizStyle.wave:     return _WaveVizPainter(frame: _frame, bandsOverride: _smoothedBands, intensity: intensity);
-      case _VizStyle.dots:     return _DotsVizPainter(frame: _frame, bandsOverride: _smoothedBands, intensity: intensity);
+      case _VizStyle.wave:     return _WaveVizPainter(bandsOverride: _displayBars, intensity: intensity);
+      case _VizStyle.dots:     return _DotsVizPainter(bandsOverride: _displayBars, intensity: intensity);
       case _VizStyle.circles:  return _CirclesVizPainter(displayBars: _displayBars, intensity: intensity);
-      case _VizStyle.peakhold: return _PeakHoldVizPainter(frame: _frame, bandsOverride: _smoothedBands, intensity: intensity);
-      default:                 return _BarsVizPainter(frame: _frame, bandsOverride: _smoothedBands, isPlaying: AudioPlayerService.isPlaying, intensity: intensity);
+      case _VizStyle.peakhold: return _PeakHoldVizPainter(bandsOverride: _displayBars, peakHoldOverride: _vizData?.peakHold, intensity: intensity);
+      default:                 return _BarsVizPainter(bandsOverride: _displayBars, isPlaying: AudioPlayerService.isPlaying, intensity: intensity);
     }
   }
 }
@@ -751,6 +669,8 @@ class _VizSmoothingSliderState extends State<_VizSmoothingSlider> {
     setState(() => _value = v);
     AppSettings.saveVizSmoothing(v).then((_) {
       AudioPlayerService.smoothingFactor = v;
+      // Push smoothing to isolate in real time
+      AudioPlayerService.setVizSmoothing(v);
     });
     widget.onSaved(v);
   }
@@ -877,10 +797,9 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   bool _showAlbumArt = false;
   /// Visualizer toggle — when true, the selected grid tile shows a spectrum analyzer
   bool _vizEnabled = false;
-  /// Latest FFT frame from mpv — updated at ~30 Hz via stream subscription (kept for fallback)
-  FftFrame? _latestFftFrame;
-  /// Subscription to mpv's FFT stream — must be disposed in dispose()
-  StreamSubscription<FftFrame>? _fftSub;
+  /// FFT processing is now handled by the background isolate in AudioPlayerService.
+  /// The shell no longer holds _fftSub or _latestFftFrame — _VizTile subscribes
+  /// to AudioPlayerService.processedVizStream independently.
   /// Visualizer style: "bars", "wave", or "dots"
   String _vizStyle = 'bars';
   /// Visualizer intensity: 0.0 to 2.0, default 1.0
@@ -953,12 +872,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       });
     }
     _listenToPlayback();
-    // Subscribe to FFT stream for visualizer — updates _latestFftFrame at ~30 Hz
-    if (_vizEnabled) {
-      _fftSub = AudioPlayerService.fftStream.listen((frame) {
-        setState(() => _latestFftFrame = frame);
-      });
-    }
+    // FFT processing is now handled by the background isolate.
+    // _VizTile subscribes to AudioPlayerService.processedVizStream independently.
 
     // Wire up auto-advance when a track finishes
     AudioPlayerService.setOnTrackComplete(_skipToNext);
@@ -1020,12 +935,10 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         if (enabled) {
           print('ALS enabled');
           _ambientLightService.stop();
-      _fftSub?.cancel();
           _startALS();
         } else {
           print('ALS disabled');
           _ambientLightService.stop();
-      _fftSub?.cancel();
           setState(() => _sunlightFactor = 0.0);
         }
       } catch (e) {
@@ -1170,7 +1083,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         _ambientLightService.stop();
       _homeSearchController.dispose();
       _homeSearchFocusNode.dispose();
-      _fftSub?.cancel();
       } catch (_) {}
     }
     super.dispose();
@@ -1182,10 +1094,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     // Ensure viz is enabled when showing options — user clearly wants to use it.
     if (!_vizEnabled) {
       setState(() => _vizEnabled = true);
-      _fftSub?.cancel();
-      _fftSub = AudioPlayerService.fftStream.listen((frame) {
-        setState(() => _latestFftFrame = frame);
-      });
+      // FFT isolate is always running — no subscription needed here.
     }
 
     showDialog(
@@ -2694,15 +2603,8 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                           onLongPress: _showVizOptions,
                           child: TextButton.icon(
                             onPressed: () {
-                              if (_vizEnabled) {
-                                _fftSub?.cancel();
-                                setState(() => _latestFftFrame = null);
-                              } else {
-                                _fftSub = AudioPlayerService.fftStream.listen((frame) {
-                                  setState(() => _latestFftFrame = frame);
-                                });
-                              }
                               setState(() => _vizEnabled = !_vizEnabled);
+                              // FFT isolate is always running — no subscription toggle needed.
                             },
                             icon: Icon(
                               Icons.equalizer,
