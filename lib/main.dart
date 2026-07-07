@@ -822,7 +822,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
   bool _favIsSearching = false;
   Timer? _favSearchDebounce;
 
-  // Grid/home search state — works across all source modes (local, SC, YouTube)
+  // Grid/home search state — works across all source modes (local)
   String? _gridSearchQuery;
   final TextEditingController _gridSearchController = TextEditingController();
   final FocusNode _gridSearchFocusNode = FocusNode();
