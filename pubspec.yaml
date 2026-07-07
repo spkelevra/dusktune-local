@@ -2,7 +2,7 @@ name: dusktune
 description: A minimalist dark-mode music player for local audio files.
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+2026070601
 
 environment:
   sdk: ^3.12.0
