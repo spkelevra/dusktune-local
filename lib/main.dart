@@ -2057,47 +2057,11 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
            // Tab buttons (icons only) — Library/Mix/Favorites moved to home dropdown; only Settings remains
               const SizedBox(width: 4),
             _tabIcon(Icons.tune, 4),
-               // Source mode switcher (all platforms)
-                 const SizedBox(width: 8),
-                 const VerticalDivider(color: Colors.white24, thickness: 1),
-                 const SizedBox(width: 4),
-                 _buildSourceModeSwitcher(),
-                 // Grid search toggle — all modes (local + streaming)
+                 // Grid search toggle
                  const SizedBox(width: 8),
                  _buildGridSearchToggle(),
               ],
               ),
-              );
-              }
-
-              /// Dropdown/button to switch between local, SoundCloud, and YouTube sources.
-              Widget _buildSourceModeSwitcher() {
-              final modes = ['local', 'soundcloud', 'youtube'];
-              final labels = {'local': 'local', 'soundcloud': 'soundcloud', 'youtube': 'youtube'};
-              return DropdownButton<String>(
-              value: widget.sourceMode,
-              underline: const SizedBox.shrink(),
-              dropdownColor: Colors.grey[850],
-              style: const TextStyle(fontSize: 12, color: Colors.white70),
-              items: modes.map((m) => DropdownMenuItem(
-              value: m,
-              child: Text(labels[m]!, style: const TextStyle(fontSize: 12)),
-              )).toList(),
-              onChanged: (value) {
-              if (value != null && value != widget.sourceMode) {
-              widget.onSourceModeChanged(value);
-              // Reset grid state when switching modes
-              setState(() {
-               _shuffledTopNine = null;
-               _gridSearchQuery = null;
-               _homeGridSearchResults = null;
-               _searchPage = 0;
-               _toppedNine = null;
-               _showingMix = false;
-               _mixGridSongs = null;
-              });
-              }
-              },
               );
               }
 
@@ -2237,18 +2201,12 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
 
                 List<Song>? results;
                 try {
-                  if (widget.sourceMode == 'local') {
-                    // Search local library by title and artist
-                    final lowerQuery = query.toLowerCase();
-                    results = widget.allSongs.where((s) =>
-                      s.title.toLowerCase().contains(lowerQuery) ||
-                      (s.artist != null && s.artist!.toLowerCase().contains(lowerQuery))
-                    ).toList()..shuffle(math.Random());
-                  } else if (widget.sourceMode == 'soundcloud') {
-                    results = await widget.scService.search(query, limit: 300);
-                  } else if (widget.sourceMode == 'youtube') {
-                    results = await widget.ytService.search(query, limit: 300);
-                  }
+                  // Search local library by title and artist
+                  final lowerQuery = query.toLowerCase();
+                  results = widget.allSongs.where((s) =>
+                    s.title.toLowerCase().contains(lowerQuery) ||
+                    (s.artist != null && s.artist!.toLowerCase().contains(lowerQuery))
+                  ).toList()..shuffle(math.Random());
                 } catch (e) {
                   debugPrint('Grid search error: $e');
                 }
@@ -2259,17 +2217,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     _shuffledTopNine = results!.take(9).toList();
                   });
                   // Extract artwork for local songs in background
-                  if (widget.sourceMode == 'local') {
-                    WidgetsBinding.instance.addPostFrameCallback((_) async {
-                      if (!mounted) return;
-                      try {
-                        final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
-                        if (mounted && extractedSongs != null) {
-                          setState(() => _shuffledTopNine = extractedSongs);
-                        }
-                      } catch (_) {}
-                    });
-                  }
+                  WidgetsBinding.instance.addPostFrameCallback((_) async {
+                    if (!mounted) return;
+                    try {
+                      final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
+                      if (mounted && extractedSongs != null) {
+                        setState(() => _shuffledTopNine = extractedSongs);
+                      }
+                    } catch (_) {}
+                  });
                 } else if (mounted) {
                   // No results — clear search state
                   setState(() {
@@ -3211,44 +3167,15 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
       setState(() => _isSearching = true);
 
-      // In streaming mode, search the active service instead of local library
-      if (widget.sourceMode == 'soundcloud') {
-        try {
-          final results = await widget.scService.search(q, limit: 50);
-          if (mounted) {
-            setState(() {
-              _searchResults = results;
-              _isSearching = false;
-            });
-          }
-        } catch (e) {
-          debugPrint('SoundCloud search error: $e');
-          if (mounted) setState(() => _isSearching = false);
-        }
-      } else if (widget.sourceMode == 'youtube') {
-        try {
-          final results = await widget.ytService.search(q, limit: 50);
-          if (mounted) {
-            setState(() {
-              _searchResults = results;
-              _isSearching = false;
-            });
-          }
-        } catch (e) {
-          debugPrint('YouTube search error: $e');
-          if (mounted) setState(() => _isSearching = false);
-        }
-      } else {
-        // Local mode: search local library
-        final lib = MusicLibrary();
-        await lib.init();
-        final results = await lib.search(q);
-        if (mounted) {
-          setState(() {
-            _searchResults = results;
-            _isSearching = false;
-          });
-        }
+      // Search local library
+      final lib = MusicLibrary();
+      await lib.init();
+      final results = await lib.search(q);
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _isSearching = false;
+        });
       }
     });
   }
