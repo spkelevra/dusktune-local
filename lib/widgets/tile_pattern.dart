@@ -267,35 +267,21 @@ class TitlePattern extends StatelessWidget {
 class AlbumArtTile extends StatelessWidget {
   final String title;
   final Uint8List? artworkBytes;
-  final String? thumbnailUrl;
   final double sunlightFactor;
 
   const AlbumArtTile({
     super.key,
     required this.title,
     this.artworkBytes,
-    this.thumbnailUrl,
     this.sunlightFactor = 0.0,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Priority: local bytes > remote URL > pattern fallback
     if (artworkBytes != null && artworkBytes!.isNotEmpty) {
       return Image.memory(
         artworkBytes!,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _buildFallback(),
-      );
-    }
-    if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) {
-      return Image.network(
-        thumbnailUrl!,
-        fit: BoxFit.cover,
-        loadingBuilder: (ctx, child, progress) {
-          if (progress == null) return child;
-          return TitlePattern(title: title, sunlightFactor: sunlightFactor);
-        },
         errorBuilder: (_, __, ___) => _buildFallback(),
       );
     }
@@ -309,41 +295,23 @@ class AlbumArtTile extends StatelessWidget {
 class AlbumArtThumbnail extends StatelessWidget {
   final String title;
   final Uint8List? artworkBytes;
-  final String? thumbnailUrl;
   final double size;
 
   const AlbumArtThumbnail({
     super.key,
     required this.title,
     this.artworkBytes,
-    this.thumbnailUrl,
     this.size = 40,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Priority: local bytes > remote URL > fallback icon
     if (artworkBytes != null && artworkBytes!.isNotEmpty) {
       return _buildImage(Image.memory(
         artworkBytes!,
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _fallbackIcon(),
       ));
-    }
-    if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) {
-      return Stack(
-        children: [
-          _buildImage(Image.network(
-            thumbnailUrl!,
-            fit: BoxFit.cover,
-            loadingBuilder: (ctx, child, progress) {
-              if (progress == null) return child;
-              return _fallbackIcon();
-            },
-            errorBuilder: (_, __, ___) => _fallbackIcon(),
-          )),
-        ],
-      );
     }
     return _fallbackIcon();
   }

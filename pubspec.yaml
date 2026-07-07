@@ -27,8 +27,6 @@ dependencies:
   permission_handler: ^12.0.3
   ambient_light: ^0.1.4
   phosphoricons_flutter: ^1.0.0
-  youtube_explode_dart: ^2.3.0
-  soundcloud_explode_dart: ^1.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

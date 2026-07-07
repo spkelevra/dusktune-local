@@ -5,23 +5,14 @@ library;
 import 'dart:typed_data';
 import 'package:on_audio_query/on_audio_query.dart';
 
-/// Source of the song — local file or streaming service.
-enum StreamSource {
-  local,      // Local file (content:// or file://)
-  soundcloud, // SoundCloud stream
-  youtube,    // YouTube stream
-}
-
 class Song {
   final int id;
   final String title;
   final String? artist;
   final String? album;
   final int duration;       // Duration in milliseconds
-  final String uri;         // Content URI, file path, or streaming URL
+  final String uri;         // Content URI or file path
   final Uint8List? artworkBytes; // Cached album art thumbnail (JPEG)
-  final String? thumbnailUrl;     // Remote thumbnail URL for streaming sources
-  final StreamSource streamSource; // Source type (local vs streaming)
 
   const Song({
     required this.id,
@@ -31,8 +22,6 @@ class Song {
     required this.duration,
     required this.uri,
     this.artworkBytes,
-    this.thumbnailUrl,
-    this.streamSource = StreamSource.local,
   });
 
   /// Alias for [duration] in milliseconds — used by UI widgets.
@@ -60,7 +49,6 @@ class Song {
        album: songModel.album,
        duration: songModel.duration ?? 0,
        uri: songModel.data,
-       streamSource: StreamSource.local,
      );
    }
 
@@ -73,7 +61,6 @@ class Song {
      int duration = 0,
      required String uri,
      Uint8List? artworkBytes,
-     String? thumbnailUrl,
    }) {
      return Song(
        id: id,
@@ -83,8 +70,6 @@ class Song {
        duration: duration,
        uri: uri,
        artworkBytes: artworkBytes,
-       thumbnailUrl: thumbnailUrl,
-       streamSource: StreamSource.local,
      );
    }
 
@@ -98,16 +83,8 @@ class Song {
      dynamic duration,
      dynamic uri,
      dynamic artworkBytes,
-     dynamic thumbnailUrl,
-     dynamic streamSource,
      bool clearArtwork = false,
    }) {
-     // Determine which fields were actually passed by checking against
-     // the original values. If a field matches the original AND wasn't
-     // explicitly requested to be cleared, keep the original.
-     //
-     // For nullable fields (artworkBytes, thumbnailUrl, artist, album, streamSource),
-     // we use the [clearArtwork] flag and explicit non-null checks.
      return Song(
        id: id != null ? id as int : this.id,
        title: title != null ? title as String : this.title,
@@ -116,8 +93,6 @@ class Song {
        duration: duration != null ? duration as int : this.duration,
        uri: uri != null ? uri as String : this.uri,
        artworkBytes: clearArtwork ? null : (artworkBytes != null ? artworkBytes as Uint8List? : this.artworkBytes),
-       thumbnailUrl: thumbnailUrl != null ? thumbnailUrl as String? : this.thumbnailUrl,
-       streamSource: streamSource != null ? streamSource as StreamSource : this.streamSource,
      );
    }
 
@@ -128,8 +103,6 @@ class Song {
          'album': album,
          'duration': duration,
          'uri': uri,
-         'thumbnailUrl': thumbnailUrl,
-         'streamSource': streamSource.name,
        };
 
    factory Song.fromJson(Map<String, dynamic> json) => Song(
@@ -139,28 +112,11 @@ class Song {
          album: json['album'] as String?,
          duration: json['duration'] as int,
          uri: json['uri'] as String,
-         streamSource: json['streamSource'] != null 
-             ? StreamSource.values.firstWhere((e) => e.name == json['streamSource'])
-             : StreamSource.local,
        );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) || other is Song && id == other.id;
-
-  /// Returns a thumbnail URL for streaming sources computed from the URI.
-  /// YouTube: deterministic CDN URL from videoId — no network call needed to discover it.
-  /// SoundCloud: null (would need API call, not worth caching).
-  String? get effectiveThumbnailUrl {
-    if (thumbnailUrl != null) return thumbnailUrl;
-    // Compute YouTube thumbnail from URI — no caching needed
-    if (streamSource == StreamSource.youtube && uri.contains('youtube.com') || uri.contains('youtu.be')) {
-      final match = RegExp(r'v=([a-zA-Z0-9_-]+)').firstMatch(uri);
-      final videoId = match?.group(1) ?? uri.split('youtu.be/')[1].split('?')[0];
-      if (videoId.isNotEmpty) return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
-    }
-    return null;
-  }
 
   @override
   int get hashCode => id.hashCode;

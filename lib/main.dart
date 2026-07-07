@@ -14,8 +14,6 @@ import 'services/music_library.dart';
 import 'services/music_scanner.dart' as desktop_scanner;
 import 'services/app_settings.dart';
 import 'services/ambient_light_service.dart';
-import 'services/soundcloud_service.dart';
-import 'services/youtube_service.dart';
 import 'widgets/rotary_filter_knob.dart';
 import 'widgets/tile_pattern.dart';
 import 'package:mpv_audio_kit/mpv_audio_kit.dart';
@@ -106,23 +104,9 @@ class _AppRootState extends State<AppRoot> {
   int _tabIndex = 0; // 0=home, 1=library, 2=mixes, 3=favorites, 4=settings (desktop)
   bool _needsFolderSetup = false; // Desktop: no music folders configured yet
   
-  // Streaming mode state
-  String _sourceMode = 'local'; // 'local' | 'soundcloud' | 'youtube'
-  List<Song> _streamQueue = []; // Currently loaded streaming tracks
-  final SoundCloudService _scService = SoundCloudService();
-  final YouTubeService _ytService = YouTubeService();
-
   @override
   void initState() {
     super.initState();
-    // Initialize streaming services in background
-    _scService.init().then((available) {
-      if (available) {
-        debugPrint('yt-dlp available for streaming');
-      } else {
-        debugPrint('yt-dlp not found — streaming disabled');
-      }
-    });
     _loadLibrary();
   }
 
@@ -242,12 +226,8 @@ class _AppRootState extends State<AppRoot> {
        tabIndex: _tabIndex,
        onTabChanged: setTab,
        isDesktop: _isDesktop,
-       sourceMode: _sourceMode,
-       onSourceModeChanged: (mode) => setState(() => _sourceMode = mode),
-       scService: _scService,
-       ytService: _ytService,
        onThemeRefresh: widget.onThemeRefresh,
-     );
+       );
     }
     }
 /// Visualizer style enum — persisted as string.
@@ -733,11 +713,6 @@ class DuskTuneShell extends StatefulWidget {
   final int tabIndex;
   final ValueChanged<int> onTabChanged;
   final bool isDesktop;
-  // Streaming mode parameters
-  final String sourceMode;
-  final ValueChanged<String> onSourceModeChanged;
-  final SoundCloudService scService;
-  final YouTubeService ytService;
   /// Callback to refresh the app theme (e.g. after renaming app title).
   final VoidCallback onThemeRefresh;
 
@@ -747,10 +722,6 @@ class DuskTuneShell extends StatefulWidget {
     required this.tabIndex,
     required this.onTabChanged,
     this.isDesktop = false,
-    this.sourceMode = 'local',
-    required this.onSourceModeChanged,
-    required this.scService,
-    required this.ytService,
     required this.onThemeRefresh,
   });
 
@@ -970,7 +941,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
         final match = widget.allSongs.firstWhere(
           (s) => s.id == id,
           orElse: () {
-            // Streaming song not in local library — reconstruct from stored data
+            // Song not in local library — reconstruct from stored data
             if (data is Map<String, dynamic>) {
               return Song(
                 id: id,
@@ -978,10 +949,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                 uri: data['uri'] as String? ?? '',
                 duration: data['duration'] as int? ?? 0,
                 artist: data['artist'] as String?,
-                streamSource: StreamSource.values.firstWhere(
-                  (e) => e.name == (data['streamSource'] as String?),
-                  orElse: () => StreamSource.local,
-                ),
               );
             }
             return Song(id: -1, title: '', uri: '', duration: 0);
@@ -1163,47 +1130,22 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
      if (!_isDesktop) {
        _resetFadeState();
      }
-
-     // Resolve stream URL for streaming sources before playback
-     Song songToPlay = song;
-     // Resolve stream URL for streaming songs regardless of current source mode.
-     // YouTube: pre-resolve via youtube_explode_dart using muxed streams (less throttled than adaptive).
-     // SoundCloud: resolve via soundcloud_explode_dart (returns direct CDN URLs).
-     if (song.streamSource != StreamSource.local) {
-       try {
-         final resolvedUri = await _resolveStreamUrl(song);
-         if (resolvedUri != null) {
-           songToPlay = song.copyWith(uri: resolvedUri);
-           debugPrint('Resolved stream URL for ${song.title}');
-         } else {
-           debugPrint('Failed to resolve stream URL for ${song.title}');
-           _isTransitioning = false;
-           return;
-         }
-       } catch (e) {
-         debugPrint('Stream resolution error: $e');
-         _isTransitioning = false;
-         return;
-       }
-     }
-
      // Track play count and recent order
      setState(() {
-       _playCounts[songToPlay.id] = (_playCounts[songToPlay.id] ?? 0) + 1;
+       _playCounts[song.id] = (_playCounts[song.id] ?? 0) + 1;
        // Move to front of recently played (remove if already there first)
-       // Store original song (with webpage URL), not resolved copy with CDN stream URL
        _recentlyPlayed.removeWhere((s) => s.id == song.id);
        _recentlyPlayed.insert(0, song);
-       _currentSong = songToPlay;
+       _currentSong = song;
 
        // Set up the play queue for continuous playback
        final effectiveQueue = queue ?? widget.allSongs;
        _playQueue = effectiveQueue;
-       _playQueueIndex = _playQueue.indexWhere((s) => s.id == songToPlay.id);
+       _playQueueIndex = _playQueue.indexWhere((s) => s.id == song.id);
      });
      // Persist play counts to disk
      _savePlayCounts();
-     await AudioPlayerService.playSong(songToPlay);
+     await AudioPlayerService.playSong(song);
      // Force UI sync — stream may not have emitted yet on desktop release builds
      if (mounted) {
        setState(() {
@@ -1213,21 +1155,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
        });
      }
    }
-
-   /// Resolve a stream URL for the given song using its own source type.
-    /// Uses song.streamSource so pinned streaming songs play even in Local mode.
-    Future<String?> _resolveStreamUrl(Song song) async {
-      try {
-        if (song.streamSource == StreamSource.soundcloud) {
-          return await widget.scService.resolveStreamUrl(song);
-        } else if (song.streamSource == StreamSource.youtube) {
-          return await widget.ytService.resolveStreamUrl(song);
-        }
-      } catch (e) {
-        debugPrint('_resolveStreamUrl error: $e');
-      }
-      return null;
-    }
 
   /// Get top N songs by play count, sorted descending.
   List<Song> getTopSongs(int n) {
@@ -1276,51 +1203,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       if (_homeGridSearchResults != null && _homeGridSearchResults!.isNotEmpty) {
         _advanceSearchPage();
         return;
-      }
-
-      // Streaming mode: fetch random tracks from the active service
-      if (widget.sourceMode != 'local') {
-        try {
-          List<Song>? tracks;
-          if (widget.sourceMode == 'soundcloud') {
-            tracks = await widget.scService.getRandomTracks(9);
-          } else if (widget.sourceMode == 'youtube') {
-            tracks = await widget.ytService.getRandomTracks(9);
-          }
-          if (tracks != null && tracks.isNotEmpty) {
-            debugPrint('shuffleTopNine streaming: ${tracks!.length} songs before clearing artwork');
-            final withArtBefore = tracks!.where((s) => s.artworkBytes != null).length;
-            debugPrint('shuffleTopNine streaming: $withArtBefore/${tracks!.length} songs have artwork from cache');
-            
-            // Clear artwork from all songs BEFORE showing them to ensure fresh extraction
-            final clearedTracks = tracks!.take(9).map((s) => s.copyWith(clearArtwork: true)).toList();
-            
-            debugPrint('shuffleTopNine streaming: cleared artwork, now ${clearedTracks.where((s) => s.artworkBytes != null).length} have artwork');
-            
-            setState(() {
-              _shuffledTopNine = clearedTracks;
-              _showingMix = false;
-              _mixGridSongs = null;
-            });
-            // Extract artwork in background for streaming tracks
-            WidgetsBinding.instance.addPostFrameCallback((_) async {
-              if (!mounted) return;
-              try {
-                final extractedSongs = await ArtworkExtractor.extractForSongsInMemory(_shuffledTopNine!);
-                if (mounted && extractedSongs != null) {
-                  setState(() {
-                    _shuffledTopNine = extractedSongs; // New list reference forces rebuild
-                  });
-                }
-              } catch (e) {
-                debugPrint('shuffleTopNine streaming artwork extraction failed: $e');
-              }
-            });
-            return;
-          }
-        } catch (e) {
-          debugPrint('shuffleTopNine streaming fetch failed: $e');
-        }
       }
 
       // Local mode: shuffle from local library — tracks appear immediately, artwork loads async
@@ -1411,7 +1293,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
       });
 
       // Extract artwork for local songs in background
-      if (widget.sourceMode == 'local' && _shuffledTopNine != null) {
+      if (_shuffledTopNine != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
           try {
@@ -1427,25 +1309,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
     /// Fetch more search results and append to existing list.
     Future<void> _fetchMoreSearchResults() async {
       if (_gridSearchQuery == null || _gridSearchQuery!.isEmpty) return;
-
-      try {
-        List<Song>? newResults;
-        if (widget.sourceMode == 'soundcloud') {
-          final fresh = await widget.scService.search(_gridSearchQuery!, limit: 100);
-          final existingIds = _homeGridSearchResults!.map((s) => s.id).toSet();
-          newResults = fresh.where((s) => !existingIds.contains(s.id)).toList();
-        } else if (widget.sourceMode == 'youtube') {
-          final fresh = await widget.ytService.search(_gridSearchQuery!, limit: 100);
-          final existingIds = _homeGridSearchResults!.map((s) => s.id).toSet();
-          newResults = fresh.where((s) => !existingIds.contains(s.id)).toList();
-        }
-
-        if (mounted && newResults != null && newResults.isNotEmpty && _homeGridSearchResults != null) {
-          setState(() {
-            _homeGridSearchResults!.addAll(newResults!);
-          });
-        }
-      } catch (_) {}
+      // Local-only: no streaming search support
     }
 
   /// Reset top picks back to most-played ranking.
@@ -1597,18 +1461,13 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
           final song = allSongs.firstWhere(
             (s) => s.id == songData['id'],
             orElse: () {
-              // Streaming song not in local library — reconstruct from stored data
+              // Song not in local library — reconstruct from stored data
               return Song(
                 id: songData['id'] as int,
                 title: songData['title'] as String? ?? 'Unknown',
                 uri: songData['uri'] as String? ?? '',
                 duration: songData['duration'] as int? ?? 0,
                 artist: songData['artist'] as String?,
-                thumbnailUrl: songData['thumbnailUrl'] as String?,
-                streamSource: StreamSource.values.firstWhere(
-                  (e) => e.name == (songData['streamSource'] as String?),
-                  orElse: () => StreamSource.local,
-                ),
               );
             },
           );
@@ -1734,11 +1593,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
               uri: data['uri'] as String? ?? '',
               duration: data['duration'] as int? ?? 0,
               artist: data['artist'] as String?,
-              thumbnailUrl: data['thumbnailUrl'] as String?,
-              streamSource: StreamSource.values.firstWhere(
-                (e) => e.name == (data['streamSource'] as String?),
-                orElse: () => StreamSource.local,
-              ),
             ));
             break;
           }
@@ -1785,8 +1639,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
             if (found.isNotEmpty) {
               songs.add(found.first);
             } else {
-              // Fallback: reconstruct from saved songData (e.g. streaming songs
-              // whose IDs changed across sessions before hash was stabilized).
+              // Fallback: reconstruct from saved songData.
               for (final data in songData) {
                 if ((data['id'] as int?) == id) {
                   songs.add(Song(
@@ -1795,11 +1648,6 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                     uri: data['uri'] as String? ?? '',
                     duration: data['duration'] as int? ?? 0,
                     artist: data['artist'] as String?,
-                    thumbnailUrl: data['thumbnailUrl'] as String?,
-                    streamSource: StreamSource.values.firstWhere(
-                      (e) => e.name == (data['streamSource'] as String?),
-                      orElse: () => StreamSource.local,
-                    ),
                   ));
                   break;
                 }
@@ -3203,7 +3051,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
                   child: showViz && isSelected
                       ? _VizTile(songTitle: song.title)
                       : _showAlbumArt
-                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes, thumbnailUrl: song.effectiveThumbnailUrl, sunlightFactor: _sunlightFactor)
+                      ? AlbumArtTile(title: song.title, artworkBytes: song.artworkBytes, sunlightFactor: _sunlightFactor)
                       : TitlePattern(title: song.title, sunlightFactor: _sunlightFactor),
                 ),
               ),
@@ -3316,7 +3164,7 @@ class _DuskTuneShellState extends State<DuskTuneShell> {
          },
          child: ListTile(
            leading: _showAlbumArt
-               ? AlbumArtThumbnail(title: song.title, artworkBytes: song.artworkBytes, thumbnailUrl: song.effectiveThumbnailUrl)
+               ? AlbumArtThumbnail(title: song.title, artworkBytes: song.artworkBytes)
                : Container(
                    width: 40,
                    height: 40,
