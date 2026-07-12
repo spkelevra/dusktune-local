@@ -92,14 +92,14 @@ class AppSettings {
     await PersistentStorage.saveShowAlbumArt(enabled);
   }
 
-  /// Load light detection (ALS) preference. Defaults to true.
-  static Future<bool> loadLightDetection() async {
-    return PersistentStorage.loadLightDetection();
+  /// Load bright album art preference. Defaults to false (disabled).
+  static Future<bool> loadBrightAlbumArt() async {
+    return PersistentStorage.loadBrightAlbumArt();
   }
 
-  /// Save light detection (ALS) preference.
-  static Future<void> saveLightDetection(bool enabled) async {
-    await PersistentStorage.saveLightDetection(enabled);
+  /// Save bright album art preference.
+  static Future<void> saveBrightAlbumArt(bool enabled) async {
+    await PersistentStorage.saveBrightAlbumArt(enabled);
   }
 
 
